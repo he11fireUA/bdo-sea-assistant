@@ -1,0 +1,25 @@
+{
+  "schema_version": 1,
+  "locale": "en",
+  "voice_name": "Vika EN",
+  "voice_profile": "native General American English",
+  "source": "AI-generated with ChatGPT at the project owner's direction and approved for project redistribution",
+  "audio_format": {
+    "container": "wav",
+    "codec": "pcm_s16le",
+    "sample_rate": 48000,
+    "channels": 1
+  },
+  "clips": {
+    "arrived": {"file": "arrived.wav", "text": "Arrived.", "sha256": "33e61ab2964829900ecabe3135ab9395c43388d916d4c39ecc4ef09bf004880c", "default_enabled": true},
+    "stuck": {"file": "stuck.wav", "text": "The ship appears to be stuck.", "sha256": "e12fc0c483142f4380b0d9aea669c25130ca47871c17e9272c13d3e8a97f66fa", "default_enabled": true},
+    "ship_hp_low": {"file": "ship_hp_low.wav", "text": "Ship durability is low.", "sha256": "4d79734a7dff442442462a9c6ad2ae3e9c1516f578e27731db2c8d50ec05b985", "default_enabled": true},
+    "rations_low": {"file": "rations_low.wav", "text": "Rations are low.", "sha256": "356592351f7e5d1097586879806c8c66f60045019ed8423ae2bbee4c4fbd480f", "default_enabled": true},
+    "capture_lost": {"file": "capture_lost.wav", "text": "Game capture has been lost.", "sha256": "9d2ff5b5515dcc634b76b2329964f62ef4e4519156d066a1c67c118ced63af2a", "default_enabled": true},
+    "capture_restored": {"file": "capture_restored.wav", "text": "Game capture has been restored.", "sha256": "5d1598ee25d8633eb8d5b00e68d83f8431e71acc080cd8fa436c472ecfdf0a38", "default_enabled": false},
+    "minimap_visibility_lost": {"file": "minimap_visibility_lost.wav", "text": "The minimap is not visible.", "sha256": "2893d7b3e07bec3227f7b1bc6dc73de56759f9ea64c3e68c9c236587bab214fb", "default_enabled": true},
+    "minimap_visibility_restored": {"file": "minimap_visibility_restored.wav", "text": "The minimap is visible again.", "sha256": "eb477c73a7d5ffa6de6a112095f939e38581aceab8b0564abbd16c6fefd7e98b", "default_enabled": false},
+    "ui_calibration_lost": {"file": "ui_calibration_lost.wav", "text": "Interface calibration has been lost.", "sha256": "e14455b3b7967013b256a09e247abaddeda1e86ce0d21120edd9a0e98f877030", "default_enabled": true},
+    "test": {"file": "test.wav", "text": "Voice alerts test.", "sha256": "2949ba1565e42d5a905a2a6f0ecc4351177028393d69d00a40805028924cb47c", "default_enabled": true}
+  }
+}

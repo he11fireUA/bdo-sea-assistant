@@ -1,0 +1,91 @@
+# Field validation backlog
+
+This document collects questions and fixtures that cannot be resolved honestly from the current offline dataset. None of these block location-agnostic detector, state-machine, or notification-core development.
+
+## Fixtures needed in a future BDO session
+
+### Minimap observability
+
+Record the calibrated minimap ROI at full capture resolution while:
+
+1. the minimap is normally visible for at least 10 seconds;
+2. the world map is opened for 1–2 seconds and closed;
+3. the world map is opened for at least 10 seconds and closed;
+4. an unrelated panel is opened without covering the minimap;
+5. if practical, the minimap is hidden or moved and then restored.
+
+This is needed to tune `content_valid` separately from capture and calibration health. Navigation timers must be suspended while the minimap is unavailable and restarted with empty persistence windows after recovery.
+
+Offline implementation status (2026-08-02):
+
+- the calibrated 2D anchor is detected on the real `minimap_port.png` crop;
+- detector configuration and evidence are fail-closed for malformed/non-finite inputs;
+- startup remains `UNKNOWN` until persistent visible evidence;
+- every non-visible or incomplete-evidence frame suspends navigation immediately, including the loss-debounce interval;
+- confirmed `ARRIVED`/`STUCK` latches survive sensor suspension, while unconfirmed and recovery/departure counters reset;
+- an end-to-end synthetic occlusion replay verifies one LOST/RESTORED event and fresh navigation persistence after restore.
+
+The synthetic occluder proves orchestration semantics only. It does **not** prove that the production threshold recognizes the real BDO world map, menus, or hidden HUD; the field sequence above remains required. The product supports only the 2D minimap; 3D minimap support is permanently out of scope.
+
+### Alpha runtime threat boundary
+
+Alpha fail-closed guarantees cover malformed/missing WGC frames and ROIs, invalid public constructor arguments, detector/OpenCV failures, incomplete observations, ordinary public-API misuse, and notification adapter failures. These cases must suspend dependent navigation and must not reuse stale persistence.
+
+The alpha does not claim isolation against arbitrary Python code already executing inside the assistant process. Deliberate `object.__setattr__` mutation of private slots, manual re-entry into `__init__`, monkeypatching class methods, or fabrication of internal detector objects are out of scope: that capability is equivalent to full process compromise. The alpha has no third-party in-process plugin API. Signed distribution and process-integrity controls belong to the later packaging/updater phase.
+
+### Minimap motion quality
+
+The current Git fixtures are intentionally compact `110×100` JPEG crops. They are suitable for deterministic regression logic but can erase subpixel motion. A future recording should retain the full calibrated minimap ROI at approximately 1 Hz for selected short windows:
+
+- normal approach;
+- five-second false pause followed by movement;
+- collision jitter;
+- combat jitter;
+- confirmed recovery;
+- arrival plus local docking repositioning.
+
+The production estimator must be validated without reading filenames, manifest labels, source sequence numbers, or localized text as features.
+
+### Resource transitions
+
+If safely available during normal play, record:
+
+- ship HP crossing below 60%, remaining low for at least five samples, then recovering above 65%;
+- rations crossing below 10%, remaining low for at least five samples, then a manual refill above 15%;
+- one temporary invalid/covered resource ROI.
+
+Do not intentionally endanger the ship merely to manufacture a fixture.
+
+### UI compatibility
+
+Capture calibration samples for configurations actually used or planned:
+
+- another BDO UI scale;
+- moved ship HUD;
+- another resolution/aspect ratio;
+- multi-monitor placement;
+- minimized BDO window;
+- locked Windows session.
+
+## Operator decisions
+
+1. Resolved: every release supports only the 2D minimap; 3D minimap is out of scope.
+2. Should `MINIMAP_VISIBILITY_RESTORED` be sent through every enabled channel, or only popup/log to avoid unnecessary voice and Telegram noise?
+3. Should UI language and notification-channel language be one global setting, or may Telegram, voice, and popup each use a different locale?
+4. For offline voice, should destination names be spoken when known, or should the first voice pack use generic phrases such as “Прибули” to avoid pronunciation and localization errors?
+5. Preferred default persistence values to validate in game:
+   - stationarity candidate: 6 seconds;
+   - arrival/stuck confirmation: longer and dependent on route evidence;
+   - minimap loss/recovery debounce: 3 valid/invalid samples.
+6. Should a restored-minimap event be silent when visibility was lost for only a short period but long enough to cross debounce?
+7. Is changing BDO UI scale or moving the ship HUD part of normal use, or mainly an installation/calibration scenario?
+8. For popup UX, is a custom non-focus-stealing overlay preferred over a native Windows toast?
+
+## Offline conclusions already supported
+
+- Barter destination identity is not required for motion, stationarity, arrival, stuck, HP/rations, or observability core logic.
+- Five seconds of low motion is insufficient for arrival.
+- Combat/collision pixel activity without coherent cumulative displacement is not route movement.
+- Recovery onset may be backdated after persistence: current fixture supports onset at sequence 1076 with confirmation around 1079.
+- Ship resource track geometry should be calibrated/frozen using the shared UI scale; colored fill is measured separately.
+- Notification channels remain independent; one adapter failure must not block the others.

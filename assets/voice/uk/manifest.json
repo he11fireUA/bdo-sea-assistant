@@ -1,0 +1,74 @@
+{
+  "schema_version": 1,
+  "locale": "uk",
+  "voice_name": "Vika",
+  "source": "AI-generated with ChatGPT at the project owner's direction and approved for project redistribution",
+  "audio_format": {
+    "container": "wav",
+    "codec": "pcm_s16le",
+    "sample_rate": 48000,
+    "channels": 1
+  },
+  "clips": {
+    "arrived": {
+      "file": "arrived.wav",
+      "text": "Прибули.",
+      "sha256": "55b926643ad7e307bbc3e43b050dfd195714d7253d2bb2954d92cc78517e8667",
+      "default_enabled": true
+    },
+    "stuck": {
+      "file": "stuck.wav",
+      "text": "Схоже, корабель застряг.",
+      "sha256": "9bd304030f8981644053b99e05fdd2b7306aaf153e9c6a284ad17174a38f69ce",
+      "default_enabled": true
+    },
+    "ship_hp_low": {
+      "file": "ship_hp_low.wav",
+      "text": "Міцність корабля низька.",
+      "sha256": "80fc80583a00ee10f700237244fb68696d61b4cefc25697a4401642ac74385ef",
+      "default_enabled": true
+    },
+    "rations_low": {
+      "file": "rations_low.wav",
+      "text": "Запаси провізії низькі.",
+      "sha256": "66ee1a3799f595b9c054ded4d8a08a4567108f457c10d206ae80633e8c050ab9",
+      "default_enabled": true
+    },
+    "capture_lost": {
+      "file": "capture_lost.wav",
+      "text": "Втрачено захоплення гри.",
+      "sha256": "1c6be1615bf541dd26100e7fa7e95985068e7718ec25f3be95686b471e267d3e",
+      "default_enabled": true
+    },
+    "capture_restored": {
+      "file": "capture_restored.wav",
+      "text": "Захоплення гри відновлено.",
+      "sha256": "c2954a87ae59e6c3a97837c23140f36e70dcfb5be6bb7f84b27e9a8c655ef2cd",
+      "default_enabled": false
+    },
+    "minimap_visibility_lost": {
+      "file": "minimap_visibility_lost.wav",
+      "text": "Мінікарту не видно.",
+      "sha256": "443ee7254986ef8e31ca49057bf5d9e32d7fa03bb52e420b8467cc42e5264aa2",
+      "default_enabled": true
+    },
+    "minimap_visibility_restored": {
+      "file": "minimap_visibility_restored.wav",
+      "text": "Мінікарту знову видно.",
+      "sha256": "2cfa7dc39e863754cad06abc50378f5b7e7572d7da289771438f80c30ce1dca0",
+      "default_enabled": false
+    },
+    "ui_calibration_lost": {
+      "file": "ui_calibration_lost.wav",
+      "text": "Втрачено калібрування інтерфейсу.",
+      "sha256": "26c84f6beb9a9f6edf500c660e2d9fb60df96e67b7ecb8adc458c51e5ae0164a",
+      "default_enabled": true
+    },
+    "test": {
+      "file": "test.wav",
+      "text": "Перевірка голосових сповіщень.",
+      "sha256": "c30cdba6a43368ffa98367a672038c0e13a7faa6c67ae9cc9bce86447d996986",
+      "default_enabled": true
+    }
+  }
+}

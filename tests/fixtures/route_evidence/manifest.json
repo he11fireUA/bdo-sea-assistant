@@ -1,0 +1,35 @@
+{
+  "schema_version": 1,
+  "scope": "2d-minimap-roi-only",
+  "privacy": "no chat, player names, credentials, or full frames",
+  "frames": [
+    {
+      "file": "stuck_route_ahead.jpg",
+      "expected_geometry": "ahead",
+      "width": 300,
+      "height": 262,
+      "sha256": "47c9f2913982521ce583b41cdf3d49dfb5ad82c2c1ae58fdacf4a620f0aadd32"
+    },
+    {
+      "file": "arrival_near_endpoint.png",
+      "expected_geometry": "near",
+      "width": 331,
+      "height": 285,
+      "sha256": "f16311b59dff596a8e4f384d91f54ea334895b6cc8fd5d45cee02dcd95fd7d19"
+    },
+    {
+      "file": "freeform_arrival.png",
+      "expected_geometry": "near",
+      "width": 331,
+      "height": 285,
+      "sha256": "14ed892f24dc43c7896499abfa1f85d9b1dc9963761723a328921af573917d61"
+    },
+    {
+      "file": "special_barter_detour.png",
+      "expected_geometry": "ambiguous",
+      "width": 331,
+      "height": 285,
+      "sha256": "5a7c8fae2a73c0402ed6db7a138180cda31904f2fc2497fbc86d70d65e413f94"
+    }
+  ]
+}

@@ -1,0 +1,11 @@
+{
+  "schema_version": 1,
+  "filename": "minimap_2d_anchor.png",
+  "sha256": "3a4fd67823a3da637b8fb994968937d0c39b0a3c2762b02af0e05f2c920b3593",
+  "width": 31,
+  "height": 31,
+  "channels": 3,
+  "dtype": "uint8",
+  "source": "tests/fixtures/minimap_2d_anchor.png",
+  "scope": "2d-minimap-only"
+}

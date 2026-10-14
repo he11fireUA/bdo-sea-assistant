@@ -1,0 +1,32 @@
+[project]
+name = "bdo-sea-assistant"
+version = "0.1.0"
+description = "Read-only Windows sea assistant for Black Desert Online"
+license = "GPL-3.0-only"
+readme = "README.md"
+requires-python = ">=3.11,<3.13"
+dependencies = [
+    "numpy>=2.4,<3",
+    "opencv-python-headless>=5.0,<6",
+    "pillow>=11,<13",
+    "pyside6>=6.8,<7",
+    "pystray>=0.19,<1",
+    "sounddevice>=0.5,<1",
+    "windows-capture==2.0.0",
+]
+
+[project.urls]
+Homepage = "https://github.com/he11fireUA/bdo-sea-assistant"
+Repository = "https://github.com/he11fireUA/bdo-sea-assistant"
+Issues = "https://github.com/he11fireUA/bdo-sea-assistant/issues"
+
+[dependency-groups]
+dev = [
+    "pytest>=9,<10",
+]
+build = [
+    "pyinstaller==6.22.2",
+]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]

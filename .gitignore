@@ -1,0 +1,50 @@
+# Python environments and caches
+.venv/
+venv/
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+
+# Build and packaging output
+build/
+dist/
+*.egg-info/
+/release/
+
+# Local configuration and secrets
+.env
+.env.*
+!.env.example
+config/*.json
+!config/*.example.json
+*.session
+*.pem
+*.key
+*.pfx
+*.p12
+
+# Runtime recordings and local state
+captures/
+journeys/
+latest_journey.txt
+logs/
+*.log
+
+# Generated diagnostic artifacts in the project root
+/.hermes/
+/arrival_*.jpg
+/hud_*.jpg
+/keyframe_grid.jpg
+/ship_hud_crop.jpg
+/top_panels.jpg
+
+# IDE and OS files
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+desktop.ini

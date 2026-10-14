@@ -1,0 +1,102 @@
+{
+  "schema_version": 1,
+  "name": "margoria_straight_motion",
+  "source": {
+    "journey": "public_scenario_margoria_motion",
+    "label": "margoria_straight_motion_operator_confirmed"
+  },
+  "crop_normalized": {
+    "x": 0.9394829612220916,
+    "y": 0.0498960498960499,
+    "width": 0.05464159811985899,
+    "height": 0.16632016632016633
+  },
+  "scope": "2d-minimap-inner-roi-only",
+  "privacy": "no chat, player names, credentials, or full frames",
+  "frames": [
+    {
+      "file": "frame_0030.png",
+      "source_sequence": 30,
+      "local_time": "2026-09-01T08:01:44.624",
+      "expected_state": "MOVING_CONFIRMED",
+      "sha256": "10a24644a2c827d5b8161118dc61ea933d4d72d4c66e2babe4de8f3808d431ac"
+    },
+    {
+      "file": "frame_0031.png",
+      "source_sequence": 31,
+      "local_time": "2026-09-01T08:01:45.623",
+      "expected_state": "MOVING_CONFIRMED",
+      "sha256": "d8038df13e3bd76ef373f2261f2af03ff51c81746ba7c351ba37c8d545b48f22"
+    },
+    {
+      "file": "frame_0032.png",
+      "source_sequence": 32,
+      "local_time": "2026-09-01T08:01:46.618",
+      "expected_state": "MOVING_CONFIRMED",
+      "sha256": "32aee4edc0ce0bb591703aac08a9345b39c8fbb13431337b0712265f79c26ca2"
+    },
+    {
+      "file": "frame_0033.png",
+      "source_sequence": 33,
+      "local_time": "2026-09-01T08:01:47.625",
+      "expected_state": "MOVING_CONFIRMED",
+      "sha256": "efba827b56c3575d13326eb7870e5955265318e682dd6c3dea751abf53023a69"
+    },
+    {
+      "file": "frame_0034.png",
+      "source_sequence": 34,
+      "local_time": "2026-09-01T08:01:48.638",
+      "expected_state": "MOVING_CONFIRMED",
+      "sha256": "a068b9ebc75edb2fb0b35debed892a9fb446f61d2bb5173513466c42fdbd431e"
+    },
+    {
+      "file": "frame_0035.png",
+      "source_sequence": 35,
+      "local_time": "2026-09-01T08:01:49.641",
+      "expected_state": "MOVING_CONFIRMED",
+      "sha256": "afa52bc3f9f9a741481f6de2a62d3f2625cc483637f3252ee083f467438f27bc"
+    },
+    {
+      "file": "frame_0036.png",
+      "source_sequence": 36,
+      "local_time": "2026-09-01T08:01:50.650",
+      "expected_state": "MOVING_CONFIRMED",
+      "sha256": "f5b78978305c5be67429ebc48c2ee27e53b599711376497263c36bc03949774e"
+    },
+    {
+      "file": "frame_0037.png",
+      "source_sequence": 37,
+      "local_time": "2026-09-01T08:01:51.654",
+      "expected_state": "MOVING_CONFIRMED",
+      "sha256": "568f28c333f60a202580d187e2d24cc6381021b6ca664c32e2a81f0555b70fdb"
+    },
+    {
+      "file": "frame_0038.png",
+      "source_sequence": 38,
+      "local_time": "2026-09-01T08:01:52.666",
+      "expected_state": "MOVING_CONFIRMED",
+      "sha256": "d1b4b8e3b2b763a2276cbc7a17c0539520c28433ff7769968dbba0feeef60f89"
+    },
+    {
+      "file": "frame_0039.png",
+      "source_sequence": 39,
+      "local_time": "2026-09-01T08:01:53.667",
+      "expected_state": "MOVING_CONFIRMED",
+      "sha256": "5b939c6407ba8516e7d8618bbf26d45e26eb17c530f394e74a2f69efeef55cec"
+    },
+    {
+      "file": "frame_0040.png",
+      "source_sequence": 40,
+      "local_time": "2026-09-01T08:01:54.674",
+      "expected_state": "MOVING_CONFIRMED",
+      "sha256": "10cd811eae0addb9b7d5f6506f2f665084591fdcfc35b1e1209f3ad55d7de3de"
+    },
+    {
+      "file": "frame_0041.png",
+      "source_sequence": 41,
+      "local_time": "2026-09-01T08:01:55.675",
+      "expected_state": "MOVING_CONFIRMED",
+      "sha256": "36a10646f03323b99afbbe4ae1ea706f89c579cd738ea27e27d15499062bde53"
+    }
+  ]
+}
