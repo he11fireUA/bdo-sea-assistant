@@ -1,4 +1,5 @@
 import os
+import threading
 import time
 
 import pytest
@@ -18,6 +19,7 @@ from bdo_assistant.navigation_state import NavigationState
 from bdo_assistant.notifications import DeliveryResult, EventType, NotificationEvent, Severity
 from bdo_assistant.runtime import RuntimeBridge, RuntimeStatus
 from bdo_assistant.runtime_session import RuntimeSessionSnapshot, RuntimeSessionState
+from bdo_assistant.updater import UpdateCheckResult, UpdateStatus
 from bdo_assistant.window_discovery import WindowCandidate
 
 
@@ -118,6 +120,105 @@ def test_personalized_build_identity_is_visible_in_title_and_update_card() -> No
     update = window.findChild(QLabel, "updateChannelInfo")
     assert update is not None
     assert update.text().endswith(identity.credit_line)
+    window.close()
+
+
+def test_update_check_runs_off_ui_thread_and_reports_no_published_release() -> None:
+    app = _app()
+    entered = threading.Event()
+    release = threading.Event()
+
+    def check_updates() -> UpdateCheckResult:
+        entered.set()
+        assert release.wait(1)
+        return UpdateCheckResult(UpdateStatus.NO_RELEASE, "0.1.0")
+
+    window = ModernMainWindow(FakeController(), update_checker=check_updates)
+    button = window.findChild(QPushButton, "updateCheckButton")
+    status = window.findChild(QLabel, "updateStatus")
+    assert button is not None and status is not None
+
+    button.click()
+    assert entered.wait(1)
+    app.processEvents()
+    assert not button.isEnabled()
+    assert button.text() == "Перевірка…"
+
+    release.set()
+    deadline = time.monotonic() + 1
+    while not button.isEnabled() and time.monotonic() < deadline:
+        app.processEvents()
+        time.sleep(0.01)
+
+    assert button.isEnabled()
+    assert button.text() == "Перевірити оновлення"
+    assert status.text() == "Опублікованих оновлень ще немає."
+    window._set_locale("en")
+    assert status.text() == "No published updates are available yet."
+    window.close()
+
+
+def test_locale_change_preserves_active_update_check_state() -> None:
+    app = _app()
+    entered = threading.Event()
+    release = threading.Event()
+
+    def check_updates() -> UpdateCheckResult:
+        entered.set()
+        assert release.wait(1)
+        return UpdateCheckResult(UpdateStatus.CURRENT, "0.1.0", latest_version="0.1.0")
+
+    window = ModernMainWindow(FakeController(), update_checker=check_updates)
+    button = window.findChild(QPushButton, "updateCheckButton")
+    assert button is not None
+    button.click()
+    assert entered.wait(1)
+    app.processEvents()
+
+    window._set_locale("en")
+
+    assert not button.isEnabled()
+    assert button.text() == "Checking…"
+    release.set()
+    deadline = time.monotonic() + 1
+    while not button.isEnabled() and time.monotonic() < deadline:
+        app.processEvents()
+        time.sleep(0.01)
+    window.close()
+
+
+def test_available_update_exposes_localized_release_action() -> None:
+    app = _app()
+    release_url = "https://github.com/he11fireUA/bdo-sea-assistant/releases/tag/v0.2.0"
+    opened: list[str] = []
+    result = UpdateCheckResult(
+        UpdateStatus.AVAILABLE,
+        "0.1.0",
+        latest_version="0.2.0",
+        release_url=release_url,
+    )
+    window = ModernMainWindow(
+        FakeController(),
+        update_checker=lambda: result,
+        release_opener=lambda url: opened.append(url) or True,
+    )
+    window._set_locale("en")
+    check_button = window.findChild(QPushButton, "updateCheckButton")
+    open_button = window.findChild(QPushButton, "updateOpenButton")
+    status = window.findChild(QLabel, "updateStatus")
+    assert check_button is not None and open_button is not None and status is not None
+
+    check_button.click()
+    deadline = time.monotonic() + 1
+    while not check_button.isEnabled() and time.monotonic() < deadline:
+        app.processEvents()
+        time.sleep(0.01)
+
+    assert status.text() == "Version 0.2.0 is available."
+    assert not open_button.isHidden()
+    assert open_button.text() == "Open release"
+    open_button.click()
+    assert opened == [release_url]
     window.close()
 
 

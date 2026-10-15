@@ -53,6 +53,8 @@ from .runtime_readiness import RuntimeDependencyStatus, load_verified_minimap_an
 from .runtime_factory import RuntimeFactoryInputs, build_runtime_bridge
 from .runtime import WgcWindowFrameSource
 from .minimap_replay_recorder import NativeMinimapReplayRecorder, NativeMinimapReplaySession
+from .updater import UpdateCheckResult, UpdateStatus, check_for_updates
+from .version import __version__
 
 from .runtime_session import (
     RuntimeSessionController,
@@ -76,6 +78,10 @@ class _RecorderSignals(QObject):
     started = Signal(object)
     preview = Signal(object)
     terminal = Signal(object, object)
+
+
+class _UpdateSignals(QObject):
+    completed = Signal(object)
 
 
 def application_icon_path() -> Path:
@@ -243,6 +249,13 @@ _UI_TEXT: dict[str, str] = {
     "Застосувати": "Apply",
     "Збережено": "Saved",
     "Перевірити оновлення": "Check for updates",
+    "Відкрити реліз": "Open release",
+    "Перевірка…": "Checking…",
+    "Перевіряємо GitHub Releases…": "Checking GitHub Releases…",
+    "Опублікованих оновлень ще немає.": "No published updates are available yet.",
+    "Встановлено актуальну версію {version}.": "Version {version} is up to date.",
+    "Доступна версія {version}.": "Version {version} is available.",
+    "Не вдалося перевірити оновлення: {error}": "Could not check for updates: {error}",
     "с": "s",
     "●  OFFLINE / НЕ ЗАПУЩЕНО": "●  OFFLINE / NOT STARTED",
     "Пошук за executable identity + title · border/cursor capture disabled": "Search by executable identity + title · border/cursor capture disabled",
@@ -405,6 +418,8 @@ class ModernMainWindow(QMainWindow):
         recordings_directory: str | Path | None = None,
         recordings_folder_opener: Callable[[Path], bool] | None = None,
         build_identity: BuildIdentity | None = None,
+        update_checker: Callable[[], UpdateCheckResult] | None = None,
+        release_opener: Callable[[str], bool] | None = None,
     ) -> None:
         super().__init__()
         self.controller = controller
@@ -413,6 +428,21 @@ class ModernMainWindow(QMainWindow):
         if not isinstance(build_identity, BuildIdentity):
             raise ValueError("build_identity must be BuildIdentity or None")
         self._build_identity = build_identity
+        if update_checker is None:
+            update_checker = lambda: check_for_updates(__version__)
+        if not callable(update_checker):
+            raise ValueError("update_checker must be callable")
+        self._update_checker = update_checker
+        if release_opener is None:
+            release_opener = lambda url: QDesktopServices.openUrl(QUrl(url))
+        if not callable(release_opener):
+            raise ValueError("release_opener must be callable")
+        self._release_opener = release_opener
+        self._available_release_url: str | None = None
+        self._update_in_progress = False
+        self._last_update_result: UpdateCheckResult | None = None
+        self._update_signals = _UpdateSignals(self)
+        self._update_signals.completed.connect(self._on_update_check_completed)
         self.runtime_diagnostics: deque[str] = deque(maxlen=200)
         if not callable(recorder_source_factory):
             raise ValueError("recorder_source_factory must be callable")
@@ -1560,18 +1590,94 @@ class ModernMainWindow(QMainWindow):
         layout.addWidget(card)
         update = self._card()
         update_layout = QHBoxLayout(update)
-        update_text = "UPDATE CHANNEL\nNot configured · immutable releases only"
+        update_text = "GITHUB RELEASES\nManual check · no silent install"
         if self._build_identity.credit_line:
             update_text += f"\n{self._build_identity.credit_line}"
-        update_layout.addWidget(self._muted(update_text, object_name="updateChannelInfo"))
-        update_layout.addStretch(1)
-        check = QPushButton("Перевірити оновлення")
-        check.setEnabled(False)
-        check.setToolTip("Signed manifest/updater перенесено в distribution checkpoint")
-        update_layout.addWidget(check)
+        update_details = QVBoxLayout()
+        update_details.addWidget(self._muted(update_text, object_name="updateChannelInfo"))
+        self.update_status = self._muted("", object_name="updateStatus")
+        self.update_status.setVisible(False)
+        update_details.addWidget(self.update_status)
+        update_layout.addLayout(update_details, 1)
+        self.update_check_button = QPushButton("Перевірити оновлення", objectName="updateCheckButton")
+        self.update_check_button.clicked.connect(self._start_update_check)
+        update_layout.addWidget(self.update_check_button)
+        self.update_open_button = QPushButton("Відкрити реліз", objectName="updateOpenButton")
+        self.update_open_button.clicked.connect(self._open_available_release)
+        self.update_open_button.setVisible(False)
+        update_layout.addWidget(self.update_open_button)
         layout.addWidget(update)
         layout.addStretch(1)
         return body
+
+    def _start_update_check(self) -> None:
+        self._update_in_progress = True
+        self._last_update_result = None
+        self._render_update_state()
+
+        def check_in_background() -> None:
+            try:
+                result = self._update_checker()
+            except Exception as exc:
+                result = UpdateCheckResult(UpdateStatus.ERROR, __version__, error=str(exc))
+            self._update_signals.completed.emit(result)
+
+        threading.Thread(
+            target=check_in_background,
+            name="github-release-update-check",
+            daemon=True,
+        ).start()
+
+    def _on_update_check_completed(self, result: object) -> None:
+        if not isinstance(result, UpdateCheckResult):
+            result = UpdateCheckResult(
+                UpdateStatus.ERROR,
+                __version__,
+                error="invalid update result",
+            )
+        self._update_in_progress = False
+        self._last_update_result = result
+        self._render_update_state()
+
+    def _render_update_state(self) -> None:
+        self._available_release_url = None
+        self.update_open_button.setVisible(False)
+        if self._update_in_progress:
+            self.update_check_button.setEnabled(False)
+            self.update_check_button.setText(self._translate("Перевірка…"))
+            self.update_status.setText(self._translate("Перевіряємо GitHub Releases…"))
+            self.update_status.setVisible(True)
+            return
+
+        self.update_check_button.setEnabled(True)
+        self.update_check_button.setText(self._translate("Перевірити оновлення"))
+        result = self._last_update_result
+        if result is None:
+            self.update_status.setVisible(False)
+            return
+        if result.status is UpdateStatus.NO_RELEASE:
+            text = self._translate("Опублікованих оновлень ще немає.")
+        elif result.status is UpdateStatus.CURRENT:
+            text = self._translate("Встановлено актуальну версію {version}.").format(
+                version=result.current_version
+            )
+        elif result.status is UpdateStatus.AVAILABLE:
+            text = self._translate("Доступна версія {version}.").format(
+                version=result.latest_version or "?"
+            )
+            if result.release_url:
+                self._available_release_url = result.release_url
+                self.update_open_button.setVisible(True)
+        else:
+            text = self._translate("Не вдалося перевірити оновлення: {error}").format(
+                error=result.error or "unknown error"
+            )
+        self.update_status.setText(text)
+        self.update_status.setVisible(True)
+
+    def _open_available_release(self) -> None:
+        if self._available_release_url:
+            self._release_opener(self._available_release_url)
 
     def _activate_page(self, index: int) -> None:
         self.page_stack.setCurrentIndex(index)
@@ -1751,6 +1857,8 @@ class ModernMainWindow(QMainWindow):
             button.setText(title)
             button.setAccessibleName(title)
         self._refresh_static_texts()
+        if hasattr(self, "update_check_button"):
+            self._render_update_state()
         self._activate_page(self.page_stack.currentIndex())
 
     def _run_action(self, label: str, action: Callable[[], None]) -> None:
