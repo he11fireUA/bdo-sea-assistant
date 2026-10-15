@@ -10,62 +10,88 @@ Asset provenance and third-party notices are documented in [ASSET_NOTICES.md](AS
 
 The project captures the BDO window through Windows Graphics Capture and analyzes visible UI pixels. It does not send input, read game memory, inject code, hook DirectX, or modify game files.
 
-## Working baseline
+## Project status
 
-The first user-accepted working version is preserved at **`first-working-v1`**
-(commit `7457770`). See [snapshot scope](docs/first-working-version.md).
+**Public alpha.** The functional core and the modern PySide6 application shell are implemented. Current development is focused on public distribution, release automation, updater installation, and continued field validation—not initial core development.
 
-The current desktop entry point is `run_modern_app.py` (PySide6). Its production
-navigation path uses direct minimap texture change plus route length, confirmed
-for five seconds. Local voice/popup alerts and the in-app recorder are available;
-Telegram and distribution/update work below remain roadmap items, not shipped
-features. Legacy replay/diagnostic modules must not be mistaken for the active
-detector.
+The production desktop entry point is:
+
+```text
+run_modern_app.py
+```
+
+### Implemented
+
+- Black Desert window discovery and Windows Graphics Capture integration;
+- saved UI calibration with preview, confirmation, retry, and manual correction;
+- 2D minimap visibility and physical texture-motion analysis;
+- conservative movement, arrival, stuck, and recovery state handling;
+- ship durability and rations measurement with configurable warning zones;
+- bundled offline Ukrainian and English voice alerts;
+- non-focus desktop popup alerts;
+- repeat-alert controls and live settings application;
+- Ukrainian and English interface localization;
+- modern settings, calibration, capture, alert, and dashboard pages;
+- deterministic replay and headless Qt test coverage;
+- Windows PyInstaller and Inno Setup packaging scripts;
+- public GitHub CI for Python 3.11 and 3.12;
+- an in-app, non-blocking GitHub Releases update check.
+
+### Current limitations
+
+- no installer or portable package has been published in GitHub Releases yet;
+- the update button checks for a newer release and opens its page, but does not yet download or install it automatically;
+- release manifests and installers are not yet cryptographically signed;
+- Telegram notifications are deferred until after the public alpha distribution path is stable;
+- navigation classification remains alpha behavior and continues to require real-route validation across additional destinations and obstruction scenarios;
+- monitoring requires a visible, non-minimized BDO window.
+
+## Development setup
+
+Supported development environment:
+
+- Windows 11 x64;
+- Python 3.11 or 3.12;
+- [uv](https://docs.astral.sh/uv/).
+
+Install the locked development environment:
+
+```powershell
+uv sync --frozen --group dev
+```
 
 Run automated tests without starting capture or audio:
 
-```bash
-PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=. QT_QPA_PLATFORM=offscreen uv run --no-sync pytest -q -p no:cacheprovider
+```powershell
+$env:PYTHONDONTWRITEBYTECODE = "1"
+$env:PYTHONPATH = "."
+$env:QT_QPA_PLATFORM = "offscreen"
+uv run --no-sync pytest -q -p no:cacheprovider
 ```
 
-## Product goal
+## Current roadmap
 
-The final deliverable is a polished Windows desktop application with:
+### Distribution and releases — current priority
 
-- a modern user interface;
-- a system-tray icon and background monitoring controls;
-- UI calibration through **Find UI Positions**;
-- independent Telegram, local voice, and desktop popup notification channels for arrival, likely grounding/stuck states, ship HP below 60%, and provisions below 10%;
-- Ukrainian and English application/notification localization, including bundled offline voice packs;
-- an installer if distribution and update requirements justify one.
+- publish a verified Windows portable archive and per-user installer;
+- build tagged GitHub Releases through GitHub Actions;
+- generate checksums and a signed update manifest;
+- add verified download, installation, restart, and rollback handling;
+- preserve settings, calibration, logs, and recordings across upgrades.
 
-## Development order
+### Reliability and field validation
 
-### Phase 1 — Functional core (current)
+- expand whole-route arrival and grounding evidence;
+- retain held-out replay sessions for regression verification;
+- validate DPI, multi-monitor, audio, tray, and installer behavior on clean Windows systems;
+- continue fail-closed handling for capture loss, unsupported geometry, and uncertain navigation evidence.
 
-- deterministic and replayable tests;
-- Windows Graphics Capture validation;
-- automatic minimap and ship-bar calibration;
-- HP and provisions measurement;
-- minimap-based movement/arrival/stuck classification;
-- debounce, hysteresis, cooldown, and channel-independent notification routing;
-- configuration schema and failure handling.
+### Later integrations
 
-### Phase 2 — Application shell
+- optional Telegram notification support;
+- additional release channels such as beta builds;
+- Authenticode signing to reduce Windows SmartScreen warnings.
 
-- modern desktop UI;
-- calibration preview with Confirm, Retry, and Manual correction;
-- settings and diagnostic views;
-- Ukrainian and English UI localization;
-- independent Telegram/voice/popup toggles, voice language, volume, playback-device selection, and test controls;
-- tray menu, start/stop monitoring, and status indicators;
-- startup behavior and clean shutdown.
+## Architecture rule
 
-### Phase 3 — Distribution
-
-- packaged executable;
-- installer only if needed;
-- verified application updates delivered through tagged GitHub Releases;
-- upgrades, configuration migration, logs, and uninstallation verification.
-
-The UI layer must call the tested core rather than contain detection logic itself. This keeps calibration and monitoring usable from automated tests, replay tools, CLI diagnostics, and the final application.
+The UI layer calls the tested core rather than containing detector logic itself. This keeps calibration and monitoring usable from automated tests, replay tools, CLI diagnostics, and the packaged desktop application.
