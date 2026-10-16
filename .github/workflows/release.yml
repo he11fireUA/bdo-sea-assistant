@@ -316,8 +316,13 @@ jobs:
           }
 
           function Get-GitHubReleaseByTag {
-            $encodedTag = [Uri]::EscapeDataString($tag)
-            return Invoke-GitHubReleaseGet "https://api.github.com/repos/$($env:REPOSITORY)/releases/tags/$encodedTag"
+            $releases = @(Invoke-GitHubReleaseGet "https://api.github.com/repos/$($env:REPOSITORY)/releases?per_page=100")
+            $matches = @($releases | Where-Object { $_.tag_name -ceq $tag })
+            if ($matches.Count -gt 1) {
+              throw "Multiple releases exist for tag $tag; refusing ambiguous ownership."
+            }
+            if ($matches.Count -eq 0) { return $null }
+            return $matches[0]
           }
 
           function Get-GitHubReleaseById {
