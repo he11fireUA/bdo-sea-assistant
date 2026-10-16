@@ -37,6 +37,10 @@ def test_publish_rechecks_the_remote_tag_and_cleans_only_its_own_failed_draft() 
     assert 'if ($resolvedSha -ne $env:EXPECTED_SHA)' in text
     assert "function Get-GitHubReleaseByTag" in text
     assert "function Get-GitHubReleaseById" in text
+    assert 'releases?per_page=100' in text
+    assert 'Where-Object { $_.tag_name -ceq $tag }' in text
+    assert "Multiple releases exist for tag" in text
+    assert "/releases/tags/" not in text
     assert "StatusCode.value__ -eq 404" in text
     assert "$createdReleaseId = [long]$createdRelease.id" in text
     assert "if ($draftCreated -and $createdReleaseId)" in text
