@@ -1,0 +1,419 @@
+name: Release Windows
+
+on:
+  pull_request:
+    branches:
+      - main
+    paths:
+      - ".github/workflows/release.yml"
+      - "assets/**"
+      - "bdo_assistant/**"
+      - "packaging/**"
+      - "scripts/**"
+      - "tools/**"
+      - "tests/test_release_metadata.py"
+      - "tests/test_release_workflow.py"
+      - "pyproject.toml"
+      - "uv.lock"
+      - "run_modern_app.py"
+  push:
+    tags:
+      - "v*.*.*"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  build:
+    name: Build and verify Windows release
+    runs-on: windows-2025
+    timeout-minutes: 35
+
+    env:
+      PYTHONDONTWRITEBYTECODE: "1"
+      PYTHONPATH: "."
+      QT_QPA_PLATFORM: "offscreen"
+
+    steps:
+      - name: Check out reviewed source
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Install locked Python toolchain
+        uses: astral-sh/setup-uv@1c37ad07a6a961277cf70c0d37d6f313000f5884 # v10.3.0
+        with:
+          version: "0.11.21"
+          python-version: "3.12"
+          enable-cache: true
+          cache-dependency-glob: uv.lock
+
+      - name: Validate release version and source commit
+        shell: pwsh
+        env:
+          EVENT_REF_TYPE: ${{ github.ref_type }}
+          EVENT_REF_NAME: ${{ github.ref_name }}
+          EVENT_SHA: ${{ github.sha }}
+        run: |
+          uv sync --frozen --group build
+          if ($LASTEXITCODE -ne 0) { throw "uv sync failed with exit code $LASTEXITCODE." }
+          if ($env:EVENT_REF_TYPE -eq "tag") {
+            git fetch origin main --no-tags
+            if ($LASTEXITCODE -ne 0) { throw "Failed to fetch origin/main." }
+            git merge-base --is-ancestor $env:EVENT_SHA origin/main
+            if ($LASTEXITCODE -ne 0) {
+              throw "Tagged commit is not contained in origin/main."
+            }
+            $env:RELEASE_TAG = $env:EVENT_REF_NAME
+          }
+          else {
+            $env:RELEASE_TAG = ""
+          }
+
+          @'
+          import os
+          from pathlib import Path
+          from tools.release_metadata import parse_release_tag, project_version, version_mismatches
+
+          root = Path.cwd()
+          source_version = project_version(root)
+          tag = os.environ.get("RELEASE_TAG", "")
+          expected = parse_release_tag(tag) if tag else source_version
+          if source_version != expected:
+              raise SystemExit(f"Tag version {expected} does not match project version {source_version}")
+          mismatches = version_mismatches(root, expected)
+          if mismatches:
+              raise SystemExit("Release version mismatch: " + ", ".join(mismatches))
+          print(f"Verified release metadata version {expected}")
+          '@ | uv run --no-sync python -
+
+      - name: Build and test portable package
+        shell: pwsh
+        run: ./scripts/build_windows.ps1
+
+      - name: Build per-user installer
+        shell: pwsh
+        run: ./scripts/build_installer.ps1
+
+      - name: Smoke-test portable package and scan privacy boundaries
+        shell: pwsh
+        run: |
+          $version = (uv run --no-sync python -c "from pathlib import Path; from tools.release_metadata import project_version; print(project_version(Path.cwd()))").Trim()
+          $zip = Resolve-Path "release/BDOSeaAssistant-$version-win-x64-portable.zip"
+          $setup = Resolve-Path "release/installer/BDOSeaAssistant-$version-win-x64-Setup.exe"
+          $smoke = Join-Path $env:RUNNER_TEMP "BDO smoke Ω space"
+          $portableRoot = Join-Path $smoke "portable"
+          $externalCwd = Join-Path $smoke "external cwd"
+          $localData = Join-Path $smoke "local app data"
+          New-Item $portableRoot, $externalCwd, $localData -ItemType Directory -Force | Out-Null
+          Expand-Archive -LiteralPath $zip -DestinationPath $portableRoot
+
+          $bundle = Join-Path $portableRoot "BDOSeaAssistant"
+          $exe = Join-Path $bundle "BDOSeaAssistant.exe"
+          $required = @(
+            $exe,
+            (Join-Path $bundle "_internal/assets/app_icon.ico"),
+            (Join-Path $bundle "_internal/assets/minimap/minimap_2d_anchor.png"),
+            (Join-Path $bundle "_internal/assets/minimap/manifest.json"),
+            (Join-Path $bundle "_internal/assets/voice/notification_bell.wav"),
+            (Join-Path $bundle "_internal/assets/voice/uk/manifest.json"),
+            (Join-Path $bundle "_internal/assets/voice/en/manifest.json")
+          )
+          foreach ($path in $required) {
+            if (-not (Test-Path -LiteralPath $path -PathType Leaf)) {
+              throw "Required packaged file is missing: $path"
+            }
+          }
+
+          $env:RELEASE_SCAN_ROOT = $bundle
+          @'
+          import os
+          from pathlib import Path
+          from tools.release_metadata import forbidden_release_entries
+
+          findings = forbidden_release_entries(Path(os.environ["RELEASE_SCAN_ROOT"]))
+          if findings:
+              raise SystemExit("Forbidden private files found: " + ", ".join(findings))
+          '@ | uv run --no-sync python -
+
+          $oldLocalAppData = $env:LOCALAPPDATA
+          $process = $null
+          try {
+            $env:LOCALAPPDATA = $localData
+            $process = Start-Process -FilePath $exe -WorkingDirectory $externalCwd -PassThru
+            Start-Sleep -Seconds 5
+            if ($process.HasExited) {
+              throw "Portable application exited during startup smoke test with code $($process.ExitCode)."
+            }
+          }
+          finally {
+            if ($process -and -not $process.HasExited) { Stop-Process -Id $process.Id -Force }
+            $env:LOCALAPPDATA = $oldLocalAppData
+          }
+
+          if (-not (Test-Path -LiteralPath $setup -PathType Leaf)) {
+            throw "Installer is missing: $setup"
+          }
+
+      - name: Test silent install, launch, uninstall, and data preservation
+        shell: pwsh
+        run: |
+          $version = (uv run --no-sync python -c "from pathlib import Path; from tools.release_metadata import project_version; print(project_version(Path.cwd()))").Trim()
+          $setup = Resolve-Path "release/installer/BDOSeaAssistant-$version-win-x64-Setup.exe"
+          $root = Join-Path $env:RUNNER_TEMP "installer smoke Ω space"
+          $installDir = Join-Path $root "installed"
+          $localData = Join-Path $root "local app data"
+          $appData = Join-Path $localData "BDOSeaAssistant"
+          $sentinel = Join-Path $appData "must-survive-uninstall.txt"
+          New-Item $appData -ItemType Directory -Force | Out-Null
+          Set-Content -LiteralPath $sentinel -Value "preserve" -Encoding ASCII
+
+          $oldLocalAppData = $env:LOCALAPPDATA
+          $app = $null
+          try {
+            $env:LOCALAPPDATA = $localData
+            $install = Start-Process -FilePath $setup -ArgumentList @(
+              "/VERYSILENT", "/SUPPRESSMSGBOXES", "/NORESTART", "/SP-", "/DIR=`"$installDir`""
+            ) -Wait -PassThru
+            if ($install.ExitCode -ne 0) { throw "Installer failed with code $($install.ExitCode)." }
+
+            $exe = Join-Path $installDir "BDOSeaAssistant.exe"
+            if (-not (Test-Path -LiteralPath $exe -PathType Leaf)) { throw "Installed executable is missing." }
+            $app = Start-Process -FilePath $exe -WorkingDirectory $root -PassThru
+            Start-Sleep -Seconds 5
+            if ($app.HasExited) { throw "Installed application exited with code $($app.ExitCode)." }
+            Stop-Process -Id $app.Id -Force
+            $app = $null
+
+            $uninstaller = Join-Path $installDir "unins000.exe"
+            $uninstall = Start-Process -FilePath $uninstaller -ArgumentList @(
+              "/VERYSILENT", "/SUPPRESSMSGBOXES", "/NORESTART"
+            ) -Wait -PassThru
+            if ($uninstall.ExitCode -ne 0) { throw "Uninstaller failed with code $($uninstall.ExitCode)." }
+            if (-not (Test-Path -LiteralPath $sentinel -PathType Leaf)) {
+              throw "Uninstall removed persistent application data."
+            }
+          }
+          finally {
+            if ($app -and -not $app.HasExited) { Stop-Process -Id $app.Id -Force }
+            $env:LOCALAPPDATA = $oldLocalAppData
+          }
+
+      - name: Generate final checksums and stage exact release assets
+        shell: pwsh
+        run: |
+          $version = (uv run --no-sync python -c "from pathlib import Path; from tools.release_metadata import project_version; print(project_version(Path.cwd()))").Trim()
+          $portable = Resolve-Path "release/BDOSeaAssistant-$version-win-x64-portable.zip"
+          $installer = Resolve-Path "release/installer/BDOSeaAssistant-$version-win-x64-Setup.exe"
+          $stage = New-Item "release/publish" -ItemType Directory -Force
+          Copy-Item -LiteralPath $portable, $installer -Destination $stage.FullName
+          $env:PORTABLE = Join-Path $stage.FullName ([IO.Path]::GetFileName($portable))
+          $env:INSTALLER = Join-Path $stage.FullName ([IO.Path]::GetFileName($installer))
+          $env:CHECKSUMS = Join-Path $stage.FullName "SHA256SUMS.txt"
+
+          @'
+          import os
+          from pathlib import Path
+          from tools.release_metadata import verify_sha256sums, write_sha256sums
+
+          files = (Path(os.environ["PORTABLE"]), Path(os.environ["INSTALLER"]))
+          manifest = Path(os.environ["CHECKSUMS"])
+          write_sha256sums(files, manifest)
+          verify_sha256sums(files, manifest)
+          '@ | uv run --no-sync python -
+
+          $names = @(Get-ChildItem -LiteralPath $stage.FullName -File | Sort-Object Name | ForEach-Object Name)
+          $expected = @(
+            "BDOSeaAssistant-$version-win-x64-Setup.exe",
+            "BDOSeaAssistant-$version-win-x64-portable.zip",
+            "SHA256SUMS.txt"
+          ) | Sort-Object
+          if (Compare-Object $names $expected) { throw "Release staging contains an unexpected asset set." }
+
+      - name: Upload verified release stage
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: windows-release-stage
+          path: release/publish/*
+          if-no-files-found: error
+          retention-days: 1
+          compression-level: 0
+
+  publish:
+    if: startsWith(github.ref, 'refs/tags/v')
+    name: Publish verified GitHub Release
+    needs: build
+    runs-on: windows-2025
+    timeout-minutes: 15
+    permissions:
+      contents: write
+    env:
+      RELEASE_TAG: ${{ github.ref_name }}
+      EXPECTED_SHA: ${{ github.sha }}
+      REPOSITORY: ${{ github.repository }}
+
+    steps:
+      - name: Check out tagged source for final provenance verification
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Download verified release stage
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: windows-release-stage
+          path: release-stage
+
+      - name: Create draft, verify uploaded bytes, and publish
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          $tag = $env:RELEASE_TAG
+          if ($tag -notmatch '^v(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)$') {
+            throw "Release tag must use strict vMAJOR.MINOR.PATCH syntax: $tag"
+          }
+          $version = $tag.Substring(1)
+          $assets = @(
+            (Resolve-Path "release-stage/BDOSeaAssistant-$version-win-x64-portable.zip").Path,
+            (Resolve-Path "release-stage/BDOSeaAssistant-$version-win-x64-Setup.exe").Path,
+            (Resolve-Path "release-stage/SHA256SUMS.txt").Path
+          )
+
+          function Confirm-MainContainment {
+            git fetch origin main --no-tags
+            if ($LASTEXITCODE -ne 0) { throw "Failed to fetch origin/main during final release verification." }
+            git merge-base --is-ancestor $env:EXPECTED_SHA origin/main
+            if ($LASTEXITCODE -ne 0) {
+              throw "Verified release commit is no longer contained in origin/main."
+            }
+          }
+
+          $apiHeaders = @{
+            Accept = "application/vnd.github+json"
+            Authorization = "Bearer $env:GH_TOKEN"
+            "X-GitHub-Api-Version" = "2022-11-28"
+          }
+
+          function Invoke-GitHubReleaseGet {
+            param([Parameter(Mandatory = $true)][string]$Uri)
+            try {
+              return Invoke-RestMethod -Method Get -Uri $Uri -Headers $apiHeaders -UserAgent "bdo-sea-assistant-release-workflow"
+            }
+            catch {
+              if ($_.Exception.Response -and $_.Exception.Response.StatusCode.value__ -eq 404) {
+                return $null
+              }
+              throw
+            }
+          }
+
+          function Get-GitHubReleaseByTag {
+            $encodedTag = [Uri]::EscapeDataString($tag)
+            return Invoke-GitHubReleaseGet "https://api.github.com/repos/$($env:REPOSITORY)/releases/tags/$encodedTag"
+          }
+
+          function Get-GitHubReleaseById {
+            param([Parameter(Mandatory = $true)][long]$ReleaseId)
+            return Invoke-GitHubReleaseGet "https://api.github.com/repos/$($env:REPOSITORY)/releases/$ReleaseId"
+          }
+
+          function Resolve-RemoteTagSha {
+            $remote = "https://github.com/$($env:REPOSITORY).git"
+            $lines = @(git ls-remote --tags $remote "refs/tags/$tag" "refs/tags/$tag^{}")
+            if ($LASTEXITCODE -ne 0 -or $lines.Count -eq 0) {
+              throw "Unable to resolve remote release tag $tag."
+            }
+            $selected = $lines | Where-Object { $_.EndsWith("refs/tags/$tag^{}") } | Select-Object -First 1
+            if (-not $selected) {
+              $selected = $lines | Where-Object { $_.EndsWith("refs/tags/$tag") } | Select-Object -First 1
+            }
+            return (($selected -split '\s+')[0]).ToLowerInvariant()
+          }
+
+          Confirm-MainContainment
+          $resolvedSha = Resolve-RemoteTagSha
+          if ($resolvedSha -ne $env:EXPECTED_SHA) {
+            throw "Remote tag $tag resolves to $resolvedSha instead of verified commit $($env:EXPECTED_SHA)."
+          }
+
+          $existingRelease = Get-GitHubReleaseByTag
+          if ($existingRelease) { throw "Release $tag already exists; refusing to replace it." }
+
+          $draftCreated = $false
+          $createdReleaseId = $null
+          try {
+            & gh release create $tag @assets `
+              --repo $env:REPOSITORY `
+              --verify-tag `
+              --draft `
+              --generate-notes `
+              --title "BDO Sea Assistant $version"
+            if ($LASTEXITCODE -ne 0) { throw "Failed to create draft release." }
+            $createdRelease = Get-GitHubReleaseByTag
+            if (-not $createdRelease -or -not $createdRelease.draft -or $createdRelease.tag_name -ne $tag) {
+              throw "Draft was created but ownership could not be established; manual cleanup may be required."
+            }
+            $createdReleaseId = [long]$createdRelease.id
+            $draftCreated = $true
+
+            $download = Join-Path $env:RUNNER_TEMP "published-release"
+            New-Item $download -ItemType Directory -Force | Out-Null
+            gh release download $tag --repo $env:REPOSITORY --dir $download
+            if ($LASTEXITCODE -ne 0) { throw "Failed to read back draft release assets." }
+            foreach ($asset in $assets) {
+              $remote = Join-Path $download ([IO.Path]::GetFileName($asset))
+              if (-not (Test-Path -LiteralPath $remote -PathType Leaf)) {
+                throw "Uploaded asset is missing: $remote"
+              }
+              $localHash = (Get-FileHash -LiteralPath $asset -Algorithm SHA256).Hash
+              $remoteHash = (Get-FileHash -LiteralPath $remote -Algorithm SHA256).Hash
+              if ($localHash -ne $remoteHash) { throw "Uploaded asset differs from verified build: $asset" }
+            }
+
+            $draft = Get-GitHubReleaseById $createdReleaseId
+            if (-not $draft) { throw "Created draft release disappeared before verification." }
+            $actualNames = @($draft.assets | ForEach-Object name | Sort-Object)
+            $expectedNames = @(
+              "BDOSeaAssistant-$version-win-x64-Setup.exe",
+              "BDOSeaAssistant-$version-win-x64-portable.zip",
+              "SHA256SUMS.txt"
+            ) | Sort-Object
+            if (-not $draft.draft -or $draft.prerelease -or $draft.tag_name -ne $tag -or [long]$draft.id -ne $createdReleaseId) {
+              throw "Draft release metadata is incorrect."
+            }
+            if (Compare-Object $actualNames $expectedNames) { throw "Draft release asset set is incorrect." }
+
+            Confirm-MainContainment
+            $resolvedSha = Resolve-RemoteTagSha
+            if ($resolvedSha -ne $env:EXPECTED_SHA) {
+              throw "Remote tag $tag changed before publication."
+            }
+            gh release edit $tag --repo $env:REPOSITORY --draft=false --prerelease=false --latest
+            if ($LASTEXITCODE -ne 0) { throw "Failed to publish verified release." }
+            $published = Get-GitHubReleaseById $createdReleaseId
+            if (-not $published -or $published.draft -or $published.prerelease -or $published.tag_name -ne $tag) {
+              throw "Published release read-back failed."
+            }
+            $draftCreated = $false
+          }
+          catch {
+            $failure = $_
+            if ($draftCreated -and $createdReleaseId) {
+              $failedRelease = Get-GitHubReleaseById $createdReleaseId
+              if ($failedRelease -and [long]$failedRelease.id -eq $createdReleaseId -and $failedRelease.draft) {
+                gh api --method DELETE "repos/$($env:REPOSITORY)/releases/$createdReleaseId"
+                if ($LASTEXITCODE -ne 0) { throw "Failed to delete owned draft release $createdReleaseId after: $failure" }
+                $remaining = Get-GitHubReleaseById $createdReleaseId
+                if ($remaining) { throw "Draft cleanup verification failed for release $createdReleaseId after: $failure" }
+              }
+            }
+            throw $failure
+          }

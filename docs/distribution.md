@@ -1,4 +1,4 @@
-# BDO Sea Assistant — private test distribution
+# BDO Sea Assistant — Windows distribution
 
 ## Supported build target
 
@@ -32,6 +32,20 @@ This creates `release\installer\BDOSeaAssistant-0.1.0-win-x64-Setup.exe`. The in
 4. Start monitoring only when ready. The game, capture, and voice test do not start automatically.
 5. To update, close the app and run the newer installer. To remove it, uninstall; settings, calibration, logs, and recordings are retained.
 
-## Release limits
+## Public release channel
 
-This is an unsigned private-test build until separately code-signed. It is not a claim of Windows 10 support, anti-cheat approval, or public redistributability of bundled assets. Before sharing outside the approved private test circle, verify asset/licence rights, test a clean Windows machine and a physical BDO machine, then generate checksums after any signing step.
+A stable tag matching `vMAJOR.MINOR.PATCH` triggers the reviewed Windows release workflow. The tagged commit must be contained in `main`, and every release-facing version field must match the tag.
+
+After tests, portable and installer smoke checks, privacy scanning, and uninstall-preservation verification, GitHub Releases receives exactly:
+
+- `BDOSeaAssistant-0.1.0-win-x64-portable.zip`;
+- `BDOSeaAssistant-0.1.0-win-x64-Setup.exe`;
+- `SHA256SUMS.txt`.
+
+The release is created as a draft first. Uploaded assets are downloaded and compared byte-for-byte before the workflow publishes the release. Ordinary branch pushes and pull requests cannot publish releases.
+
+## Current release limits
+
+Public alpha binaries are unsigned until Authenticode signing is added. SHA-256 verifies file integrity but is not a substitute for a cryptographic publisher signature. The in-app updater currently checks the latest published release and opens its GitHub page; it does not silently download or install anything.
+
+This is not a claim of Windows 10 support or anti-cheat approval. Public packages contain only the reviewed application assets described in [ASSET_NOTICES.md](../ASSET_NOTICES.md); local settings, calibration, captures, recordings, logs, and credentials are excluded.
