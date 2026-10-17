@@ -391,6 +391,46 @@ def test_absent_ship_hud_suppresses_low_resource_alerts_with_visible_minimap() -
     ]
 
 
+def test_no_ship_reboarding_stationary_cannot_replay_arrival_until_motion_rearms_it() -> None:
+    minimap = cv2.imread(str(FIXTURES / "minimap_port.png"))
+    loop = _simple_loop()
+    moving = NavigationObservation(MotionClass.MOVING, False, True)
+    stationary_without_route = NavigationObservation(MotionClass.STATIONARY, True, False)
+
+    active = loop.process(
+        MonitoringSample(1, True, True, minimap, moving, 80, 80, True, received_monotonic=1.0)
+    )
+    absent = loop.process(
+        MonitoringSample(2, True, True, minimap, None, None, None, False, received_monotonic=2.0)
+    )
+    reboarded = [
+        loop.process(
+            MonitoringSample(sequence, True, True, minimap, stationary_without_route, 80, 80, True,
+                             received_monotonic=now)
+        )
+        for sequence, now in ((3, 3.0), (4, 10.0))
+    ]
+
+    assert active.navigation_state is NavigationState.MOVING
+    assert absent.navigation_state is NavigationState.NO_SHIP
+    assert all(result.navigation_state is NavigationState.UNKNOWN for result in reboarded)
+    assert all(EventType.ARRIVED not in [event.event_type for event in result.events] for result in reboarded)
+
+    assert loop.process(
+        MonitoringSample(5, True, True, minimap, moving, 80, 80, True, received_monotonic=11.0)
+    ).navigation_state is NavigationState.MOVING
+    assert loop.process(
+        MonitoringSample(6, True, True, minimap, stationary_without_route, 80, 80, True,
+                         received_monotonic=12.0)
+    ).navigation_state is NavigationState.MOVING
+    arrived = loop.process(
+        MonitoringSample(7, True, True, minimap, stationary_without_route, 80, 80, True,
+                         received_monotonic=17.0)
+    )
+    assert arrived.navigation_state is NavigationState.DEPARTED
+    assert [event.event_type for event in arrived.events] == [EventType.ARRIVED]
+
+
 def test_sample_builder_skips_minimap_analysis_without_both_ship_bars_and_resumes_immediately(monkeypatch) -> None:
     layout = {
         "schema_version": 1,

@@ -56,7 +56,8 @@ class NavigationStateMachine:
         "_arrival_seconds", "_stuck_seconds", "_recovery_seconds", "_departure_seconds",
         "_state", "_arrival_count", "_stuck_count", "_recovery_count", "_departure_count",
         "_arrival_since", "_stuck_since", "_recovery_since", "_departure_since",
-        "_last_observed_monotonic", "_simple", "_confirmation_seconds", "_pending_state", "_pending_since",
+        "_last_observed_monotonic", "_simple", "_confirmation_seconds", "_unknown_grace_seconds",
+        "_pending_state", "_pending_since", "_moving_unknown_since", "_departure_armed",
         "_route_seen_ahead", "_recent_near_monotonic",
     )
 
@@ -73,6 +74,7 @@ class NavigationStateMachine:
         departure_seconds: float | None = None,
         simple: bool = False,
         confirmation_seconds: float = 5.0,
+        unknown_grace_seconds: float = 5.0,
     ) -> None:
         # Frame thresholds remain a compatibility mode; they are never seconds.
         self._arrival_frames = arrival_frames
@@ -87,6 +89,9 @@ class NavigationStateMachine:
             raise ValueError("simple must be boolean")
         self._simple = simple
         self._confirmation_seconds = _seconds(confirmation_seconds, "confirmation_seconds")
+        self._unknown_grace_seconds = _seconds(unknown_grace_seconds, "unknown_grace_seconds")
+        if self._unknown_grace_seconds is None:
+            raise ValueError("unknown_grace_seconds must be a finite positive number")
         NavigationStateMachine._validate_configuration(self)
         self._state = NavigationState.UNKNOWN
         self._arrival_count = self._stuck_count = self._recovery_count = self._departure_count = 0
@@ -94,6 +99,8 @@ class NavigationStateMachine:
         self._last_observed_monotonic: float | None = None
         self._pending_state: NavigationState | None = None
         self._pending_since: float | None = None
+        self._moving_unknown_since: float | None = None
+        self._departure_armed = True
         self._route_seen_ahead = False
         self._recent_near_monotonic: float | None = None
 
@@ -107,6 +114,7 @@ class NavigationStateMachine:
             (self._recovery_seconds, "recovery_seconds"),
             (self._departure_seconds, "departure_seconds"),
             (self._confirmation_seconds, "confirmation_seconds"),
+            (self._unknown_grace_seconds, "unknown_grace_seconds"),
         ):
             _seconds(value, name)
 
@@ -150,40 +158,59 @@ class NavigationStateMachine:
         self._pending_state = None
         self._pending_since = None
 
+    def _reset_moving_unknown_grace(self) -> None:
+        self._moving_unknown_since = None
+
+    def _bridge_simple_unknown(self, now: float | None) -> NavigationState:
+        if self._state is NavigationState.MOVING and now is not None:
+            if self._moving_unknown_since is None:
+                self._moving_unknown_since = now
+            if now - self._moving_unknown_since < self._unknown_grace_seconds:
+                return NavigationState.MOVING
+        self._state = NavigationState.UNKNOWN
+        return self._state
+
     def _reset_simple_route_context(self) -> None:
         self._route_seen_ahead = False
         self._recent_near_monotonic = None
 
     def _simple_update(self, observation: NavigationObservation, now: float | None) -> NavigationState:
-        """Apply the direct 3D-map truth table with five-second stationary terminals."""
+        """Apply the direct 3D-map truth table with five-second temporal bridges."""
         route_present = observation.route_complete is False and observation.endpoint_ahead is True
         route_absent = observation.route_complete is True and observation.endpoint_ahead is False
         if observation.motion is MotionClass.MOVING and route_present:
             self._state = NavigationState.MOVING
+            self._departure_armed = True
             self._reset_simple_pending()
+            self._reset_moving_unknown_grace()
             return self._state
 
         target = {
             (MotionClass.STATIONARY, True): NavigationState.STUCK,
             (MotionClass.STATIONARY, False): NavigationState.DEPARTED,
         }.get((observation.motion, route_present if route_present or route_absent else None))
-        if target is None or now is None:
-            self._state = NavigationState.UNKNOWN
+        if target is NavigationState.DEPARTED and not self._departure_armed:
             self._reset_simple_pending()
+            self._reset_moving_unknown_grace()
+            self._state = NavigationState.UNKNOWN
             return self._state
+        if target is None or now is None:
+            self._reset_simple_pending()
+            return self._bridge_simple_unknown(now)
         if target is self._state:
             self._reset_simple_pending()
+            self._reset_moving_unknown_grace()
             return self._state
         if target is not self._pending_state:
             self._pending_state = target
             self._pending_since = now
-            self._state = NavigationState.UNKNOWN
-            return self._state
+            return self._bridge_simple_unknown(now)
         if now - self._pending_since >= self._confirmation_seconds:
             self._state = target
             self._reset_simple_pending()
+            self._reset_moving_unknown_grace()
         else:
-            self._state = NavigationState.UNKNOWN
+            self._bridge_simple_unknown(now)
         return self._state
 
     @staticmethod
@@ -219,6 +246,7 @@ class NavigationStateMachine:
         self._reset_recovery()
         self._reset_departure()
         self._reset_simple_pending()
+        self._reset_moving_unknown_grace()
         self._reset_simple_route_context()
         self._last_observed_monotonic = None
         if self._simple:
@@ -232,6 +260,8 @@ class NavigationStateMachine:
     def no_ship(self) -> NavigationState:
         """Pause navigation and discard all evidence until the paired ship HUD returns."""
         self.suspend()
+        if self._simple:
+            self._departure_armed = False
         self._state = NavigationState.NO_SHIP
         return self._state
 

@@ -14,7 +14,7 @@ Run from PowerShell:
 powershell.exe -NoProfile -ExecutionPolicy Bypass -File scripts\build_windows.ps1
 ```
 
-The script runs the source suite, builds a PyInstaller onedir bundle in `release\dist\BDOSeaAssistant`, validates required assets, and produces `release\BDOSeaAssistant-0.2.0-win-x64-portable.zip`. It only replaces `release\build`, `release\dist`, and that ZIP; it never deletes source, captures, recordings, settings, or AppData.
+The script runs the source suite, builds a PyInstaller onedir bundle in `release\dist\BDOSeaAssistant`, validates required assets, and produces `release\BDOSeaAssistant-0.2.1-win-x64-portable.zip`. It only replaces `release\build`, `release\dist`, and that ZIP; it never deletes source, captures, recordings, settings, or AppData.
 
 To build the installer after a successful bundle, install Inno Setup 6 and run:
 
@@ -22,7 +22,7 @@ To build the installer after a successful bundle, install Inno Setup 6 and run:
 powershell.exe -NoProfile -ExecutionPolicy Bypass -File scripts\build_installer.ps1
 ```
 
-This creates `release\installer\BDOSeaAssistant-0.2.0-win-x64-Setup.exe`. The installer is per-user and uninstall leaves `%LOCALAPPDATA%\BDOSeaAssistant` intact.
+This creates `release\installer\BDOSeaAssistant-0.2.1-win-x64-Setup.exe`. The installer is per-user and uninstall leaves `%LOCALAPPDATA%\BDOSeaAssistant` intact.
 
 ## Tester instructions
 
@@ -38,8 +38,8 @@ A stable tag matching `vMAJOR.MINOR.PATCH` triggers the reviewed Windows release
 
 After tests, portable and installer smoke checks, privacy scanning, and uninstall-preservation verification, GitHub Releases receives exactly:
 
-- `BDOSeaAssistant-0.2.0-win-x64-portable.zip`;
-- `BDOSeaAssistant-0.2.0-win-x64-Setup.exe`;
+- `BDOSeaAssistant-0.2.1-win-x64-portable.zip`;
+- `BDOSeaAssistant-0.2.1-win-x64-Setup.exe`;
 - `SHA256SUMS.txt`.
 
 The release is created as a draft first. Uploaded assets are downloaded and compared byte-for-byte before the workflow publishes the release. Ordinary branch pushes and pull requests cannot publish releases.

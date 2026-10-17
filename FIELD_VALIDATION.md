@@ -2,7 +2,7 @@
 
 This document collects questions and fixtures that cannot be resolved honestly from the distributed offline dataset. None of these block location-agnostic detector, state-machine, or notification-core development.
 
-Three operator-labeled local sessions covering movement, arrival, and grounding informed the current 3D detector work. They are not published as automated replay fixtures, so they do not establish reproducible field-validation coverage for this repository.
+Four operator-labeled local sessions covering general movement, sustained horizontal movement, arrival, and grounding informed the current 3D detector work. They are not published as automated replay fixtures, so they do not establish reproducible field-validation coverage for this repository.
 
 ## Fixtures needed in a future BDO session
 
@@ -27,7 +27,7 @@ Offline implementation status (2026-08-02):
 - confirmed `ARRIVED`/`STUCK` latches survive sensor suspension, while unconfirmed and recovery/departure counters reset;
 - an end-to-end synthetic occlusion replay verifies one LOST/RESTORED event and fresh navigation persistence after restore.
 
-The synthetic occluder proves orchestration semantics only. It does **not** prove that the production threshold recognizes every real BDO world map, menu, or hidden-HUD variant; the field sequence above remains required. Version 0.2.0 switches production navigation to the fixed-orientation 3D minimap and gates all minimap analysis on the paired ship HP and rations HUD.
+The synthetic occluder proves orchestration semantics only. It does **not** prove that the production threshold recognizes every real BDO world map, menu, or hidden-HUD variant; the field sequence above remains required. Version 0.2.1 uses the fixed-orientation 3D minimap, recognizes axis-aligned horizontal route geometry, bridges brief `MOVING → UNKNOWN` ambiguity for up to five seconds, and gates all minimap analysis on the paired ship HP and rations HUD.
 
 ### Alpha runtime threat boundary
 
@@ -36,6 +36,10 @@ Alpha fail-closed guarantees cover malformed/missing WGC frames and ROIs, invali
 The alpha does not claim isolation against arbitrary Python code already executing inside the assistant process. Deliberate `object.__setattr__` mutation of private slots, manual re-entry into `__init__`, monkeypatching class methods, or fabrication of internal detector objects are out of scope: that capability is equivalent to full process compromise. The alpha has no third-party in-process plugin API. Signed distribution and process-integrity controls belong to the later packaging/updater phase.
 
 ### Minimap motion quality
+
+A local operator-labeled 60-second horizontal-motion session recorded 280 minimap frames. Mechanical replay produced valid coherent texture motion for all 279 frame pairs; the failure was route-presence geometry, not Lucas–Kanade motion tracking. After the route fix, the authoritative analyzer/state-machine replay produced one startup `UNKNOWN` followed by 279 consecutive `MOVING` states.
+
+The same replay did **not** support discarding the upper 50% of the minimap. Feature counts by vertical quarter were `11219 / 20033 / 11549 / 3070` from top to bottom: the upper half supplied most available points, while the bottom quarter was sparsest. Full-ROI, lower-half, and lower-two-thirds motion estimates all remained valid, so production retains the full masked ROI rather than hard-cropping useful geometry.
 
 The current Git fixtures are intentionally compact `110×100` JPEG crops. They are suitable for deterministic regression logic but can erase subpixel motion. A future recording should retain the full calibrated minimap ROI at approximately 1 Hz for selected short windows:
 
@@ -71,7 +75,7 @@ Capture calibration samples for configurations actually used or planned:
 
 ## Operator decisions
 
-1. Resolved: version 0.2.0 targets the fixed-orientation 3D minimap; the former 2D-only decision is obsolete.
+1. Resolved: version 0.2.x targets the fixed-orientation 3D minimap; the former 2D-only decision is obsolete.
 2. Should `MINIMAP_VISIBILITY_RESTORED` be sent through every enabled channel, or only popup/log to avoid unnecessary voice and Telegram noise?
 3. Should UI language and notification-channel language be one global setting, or may Telegram, voice, and popup each use a different locale?
 4. For offline voice, should destination names be spoken when known, or should the first voice pack use generic phrases such as “Прибули” to avoid pronunciation and localization errors?
