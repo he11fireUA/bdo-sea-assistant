@@ -234,10 +234,11 @@ def assess_route_presence(minimap_bgr: np.ndarray) -> RoutePresence:
     _, labels, stats, _ = cv2.connectedComponentsWithStats(route_mask, 8)
     center_x = width / 2.0
     center_y = height / 2.0
-    center_radius = max(6.0, min(height, width) * 0.06)
+    center_radius = max(6.0, min(height, width) * 0.075)
     ambiguity_radius = max(center_radius, min(height, width) * 0.09)
     required_extent = min(height, width) * 0.23
     max_area = height * width * 0.02
+    max_minor_width = min(height, width) * 0.04
 
     ambiguous_near_center = False
     for label, (_, _, component_width, component_height, area) in enumerate(stats[1:], 1):
@@ -251,15 +252,15 @@ def assess_route_presence(minimap_bgr: np.ndarray) -> RoutePresence:
             ambiguous_near_center = True
         if area > max_area:
             continue
-        fill_ratio = area / (component_width * component_height)
         points = np.column_stack((xs, ys)).astype(np.float32)
         covariance = np.cov(points, rowvar=False)
         eigenvalues = np.linalg.eigvalsh(covariance)
         elongation = float(eigenvalues[-1] / max(eigenvalues[0], 1e-6))
+        minor_width = float(np.sqrt(max(0.0, 12.0 * eigenvalues[0])))
         if (
             float(distances.min()) <= center_radius
             and float(distances.max()) >= required_extent
-            and fill_ratio <= 0.35
+            and minor_width <= max_minor_width
             and elongation >= 6.0
         ):
             return RoutePresence.PRESENT

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import cv2
 import numpy as np
+import pytest
 
 from bdo_assistant.motion import MotionClass
 from bdo_assistant.navigation_state import NavigationObservation, NavigationState, NavigationStateMachine
@@ -28,6 +29,31 @@ def _map_texture(*, dx: float = 0.0, dy: float = 0.0, route: bool = True, marker
 
 def test_route_presence_accepts_thin_purple_line_from_ship_center() -> None:
     assert route_evidence.assess_route_presence(_map_texture(route=True)) is route_evidence.RoutePresence.PRESENT
+
+
+def test_route_presence_accepts_horizontal_3d_route_occluded_by_ship_marker() -> None:
+    image = _map_texture(route=False)
+    # The live 3D route is a bright, nearly filled horizontal strip whose first
+    # visible pixel starts just beyond the centered ship-marker silhouette.
+    cv2.rectangle(image, (167, 135), (299, 141), (115, 65, 60), -1)
+
+    assert route_evidence.assess_route_presence(image) is route_evidence.RoutePresence.PRESENT
+
+
+@pytest.mark.parametrize("dx", [-2.0, 2.0])
+def test_horizontal_3d_route_reports_motion_in_both_directions(dx: float) -> None:
+    analyzer = SimpleNavigationAnalyzer(minimum_displacement=0.04)
+    previous = _map_texture(route=False)
+    current = _map_texture(dx=dx, route=False)
+    for image in (previous, current):
+        cv2.rectangle(image, (167, 135), (299, 141), (115, 65, 60), -1)
+
+    assert analyzer(0, previous).motion is MotionClass.UNKNOWN
+    observation = analyzer(1, current)
+
+    assert observation.motion is MotionClass.MOVING
+    assert observation.route_complete is False
+    assert observation.endpoint_ahead is True
 
 
 def test_route_presence_rejects_missing_route_and_large_blue_terrain() -> None:
@@ -129,7 +155,52 @@ def test_simple_state_machine_reports_moving_immediately_only_with_route() -> No
     moving_without_route = NavigationObservation(MotionClass.MOVING, True, False)
 
     assert machine.update(moving_with_route, observed_monotonic=1.0) is NavigationState.MOVING
-    assert machine.update(moving_without_route, observed_monotonic=2.0) is NavigationState.UNKNOWN
+    assert machine.update(moving_without_route, observed_monotonic=2.0) is NavigationState.MOVING
+
+
+def test_simple_state_machine_expires_continuous_unknown_after_five_seconds() -> None:
+    machine = NavigationStateMachine(simple=True, confirmation_seconds=5.0)
+    moving = NavigationObservation(MotionClass.MOVING, False, True)
+    unknown = NavigationObservation(MotionClass.UNKNOWN, None, None)
+
+    assert machine.update(moving, observed_monotonic=10.0) is NavigationState.MOVING
+    assert machine.update(unknown, observed_monotonic=10.1) is NavigationState.MOVING
+    assert machine.update(unknown, observed_monotonic=15.09) is NavigationState.MOVING
+    assert machine.update(unknown, observed_monotonic=15.1) is NavigationState.UNKNOWN
+
+
+def test_trusted_moving_resets_the_unknown_grace_timer() -> None:
+    machine = NavigationStateMachine(simple=True, confirmation_seconds=5.0)
+    moving = NavigationObservation(MotionClass.MOVING, False, True)
+    unknown = NavigationObservation(MotionClass.UNKNOWN, None, None)
+
+    assert machine.update(moving, observed_monotonic=1.0) is NavigationState.MOVING
+    assert machine.update(unknown, observed_monotonic=2.0) is NavigationState.MOVING
+    assert machine.update(moving, observed_monotonic=4.0) is NavigationState.MOVING
+    assert machine.update(unknown, observed_monotonic=5.0) is NavigationState.MOVING
+    assert machine.update(unknown, observed_monotonic=9.9) is NavigationState.MOVING
+    assert machine.update(unknown, observed_monotonic=10.0) is NavigationState.UNKNOWN
+
+
+def test_no_ship_disarms_departed_until_new_trusted_movement() -> None:
+    machine = NavigationStateMachine(simple=True, confirmation_seconds=5.0)
+    moving = NavigationObservation(MotionClass.MOVING, False, True)
+    stationary_without_route = NavigationObservation(MotionClass.STATIONARY, True, False)
+
+    assert machine.update(moving, observed_monotonic=1.0) is NavigationState.MOVING
+    assert machine.no_ship() is NavigationState.NO_SHIP
+    assert machine.update(stationary_without_route, observed_monotonic=2.0) is NavigationState.UNKNOWN
+    assert machine.update(stationary_without_route, observed_monotonic=8.0) is NavigationState.UNKNOWN
+
+    assert machine.update(moving, observed_monotonic=9.0) is NavigationState.MOVING
+    assert machine.update(stationary_without_route, observed_monotonic=10.0) is NavigationState.MOVING
+    assert machine.update(stationary_without_route, observed_monotonic=15.0) is NavigationState.DEPARTED
+
+
+@pytest.mark.parametrize("value", [None, 0, -1, float("nan"), True])
+def test_simple_state_machine_rejects_invalid_unknown_grace_seconds(value: object) -> None:
+    with pytest.raises(ValueError, match="unknown_grace_seconds"):
+        NavigationStateMachine(simple=True, unknown_grace_seconds=value)
 
 
 def test_simple_state_machine_confirms_departed_after_five_static_seconds_without_route() -> None:
