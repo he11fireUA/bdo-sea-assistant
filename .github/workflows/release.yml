@@ -316,10 +316,17 @@ jobs:
           }
 
           function Get-GitHubReleaseByTag {
-            $releases = @(Invoke-GitHubReleaseGet "https://api.github.com/repos/$($env:REPOSITORY)/releases?per_page=100")
-            $matches = @($releases | Where-Object { $_.tag_name -ceq $tag })
-            if ($matches.Count -gt 1) {
-              throw "Multiple releases exist for tag $tag; refusing ambiguous ownership."
+            $page = 1
+            $matches = @()
+            while ($true) {
+              $pageItems = @(Invoke-GitHubReleaseGet "https://api.github.com/repos/$($env:REPOSITORY)/releases?per_page=100&page=$page")
+              $matches += @($pageItems | Where-Object { $_.tag_name -ceq $tag })
+              if ($matches.Count -gt 1) {
+                throw "Multiple releases exist for tag $tag; refusing ambiguous ownership."
+              }
+              if ($pageItems.Count -lt 100) { break }
+              $page += 1
+              if ($page -gt 1000) { throw "Release enumeration exceeded the safety page limit." }
             }
             if ($matches.Count -eq 0) { return $null }
             return $matches[0]
@@ -355,32 +362,36 @@ jobs:
           $draftCreated = $false
           $createdReleaseId = $null
           try {
-            & gh release create $tag @assets `
-              --repo $env:REPOSITORY `
-              --verify-tag `
-              --draft `
-              --generate-notes `
-              --title "BDO Sea Assistant $version"
-            if ($LASTEXITCODE -ne 0) { throw "Failed to create draft release." }
-            $createdRelease = Get-GitHubReleaseByTag
-            if (-not $createdRelease -or -not $createdRelease.draft -or $createdRelease.tag_name -ne $tag) {
-              throw "Draft was created but ownership could not be established; manual cleanup may be required."
+            $createBody = @{
+              tag_name = $tag
+              target_commitish = $env:EXPECTED_SHA
+              name = "BDO Sea Assistant $version"
+              draft = $true
+              prerelease = $false
+              generate_release_notes = $true
+            } | ConvertTo-Json
+            $createdRelease = Invoke-RestMethod -Method Post -Uri "https://api.github.com/repos/$($env:REPOSITORY)/releases" `
+              -Headers $apiHeaders -UserAgent "bdo-sea-assistant-release-workflow" `
+              -ContentType "application/json" -Body $createBody
+            if (-not $createdRelease) { throw "GitHub returned no draft creation response." }
+            try {
+              $createdReleaseId = [long]$createdRelease.id
             }
-            $createdReleaseId = [long]$createdRelease.id
+            catch {
+              throw "Draft creation response did not contain a numeric release ID."
+            }
+            if ($createdReleaseId -le 0) { throw "Draft creation response contained an invalid release ID." }
             $draftCreated = $true
+            if (-not $createdRelease.draft -or $createdRelease.tag_name -ne $tag) {
+              throw "Draft creation response metadata is incorrect."
+            }
 
-            $download = Join-Path $env:RUNNER_TEMP "published-release"
-            New-Item $download -ItemType Directory -Force | Out-Null
-            gh release download $tag --repo $env:REPOSITORY --dir $download
-            if ($LASTEXITCODE -ne 0) { throw "Failed to read back draft release assets." }
             foreach ($asset in $assets) {
-              $remote = Join-Path $download ([IO.Path]::GetFileName($asset))
-              if (-not (Test-Path -LiteralPath $remote -PathType Leaf)) {
-                throw "Uploaded asset is missing: $remote"
-              }
-              $localHash = (Get-FileHash -LiteralPath $asset -Algorithm SHA256).Hash
-              $remoteHash = (Get-FileHash -LiteralPath $remote -Algorithm SHA256).Hash
-              if ($localHash -ne $remoteHash) { throw "Uploaded asset differs from verified build: $asset" }
+              $assetName = [Uri]::EscapeDataString([IO.Path]::GetFileName($asset))
+              $uploadUri = "https://uploads.github.com/repos/$($env:REPOSITORY)/releases/$createdReleaseId/assets?name=$assetName"
+              Invoke-RestMethod -Method Post -Uri $uploadUri -Headers $apiHeaders `
+                -UserAgent "bdo-sea-assistant-release-workflow" `
+                -ContentType "application/octet-stream" -InFile $asset | Out-Null
             }
 
             $draft = Get-GitHubReleaseById $createdReleaseId
@@ -396,13 +407,32 @@ jobs:
             }
             if (Compare-Object $actualNames $expectedNames) { throw "Draft release asset set is incorrect." }
 
+            $download = Join-Path $env:RUNNER_TEMP "published-release"
+            New-Item $download -ItemType Directory -Force | Out-Null
+            $downloadHeaders = $apiHeaders.Clone()
+            $downloadHeaders.Accept = "application/octet-stream"
+            foreach ($remoteAsset in $draft.assets) {
+              $remote = Join-Path $download $remoteAsset.name
+              Invoke-WebRequest -Method Get -Uri $remoteAsset.url -Headers $downloadHeaders `
+                -UserAgent "bdo-sea-assistant-release-workflow" -OutFile $remote
+              $local = $assets | Where-Object { [IO.Path]::GetFileName($_) -ceq $remoteAsset.name } | Select-Object -First 1
+              if (-not $local -or -not (Test-Path -LiteralPath $remote -PathType Leaf)) {
+                throw "Uploaded asset is missing from read-back: $($remoteAsset.name)"
+              }
+              $localHash = (Get-FileHash -LiteralPath $local -Algorithm SHA256).Hash
+              $remoteHash = (Get-FileHash -LiteralPath $remote -Algorithm SHA256).Hash
+              if ($localHash -ne $remoteHash) { throw "Uploaded asset differs from verified build: $local" }
+            }
+
             Confirm-MainContainment
             $resolvedSha = Resolve-RemoteTagSha
             if ($resolvedSha -ne $env:EXPECTED_SHA) {
               throw "Remote tag $tag changed before publication."
             }
-            gh release edit $tag --repo $env:REPOSITORY --draft=false --prerelease=false --latest
-            if ($LASTEXITCODE -ne 0) { throw "Failed to publish verified release." }
+            $publishBody = @{ draft = $false; prerelease = $false; make_latest = "true" } | ConvertTo-Json
+            Invoke-RestMethod -Method Patch -Uri "https://api.github.com/repos/$($env:REPOSITORY)/releases/$createdReleaseId" `
+              -Headers $apiHeaders -UserAgent "bdo-sea-assistant-release-workflow" `
+              -ContentType "application/json" -Body $publishBody | Out-Null
             $published = Get-GitHubReleaseById $createdReleaseId
             if (-not $published -or $published.draft -or $published.prerelease -or $published.tag_name -ne $tag) {
               throw "Published release read-back failed."
