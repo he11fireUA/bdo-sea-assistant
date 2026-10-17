@@ -222,6 +222,14 @@ class AlphaMonitoringLoop:
         self.rations_warning.reset()
         return NavigationStateMachine.suspend(self.minimap.gate.navigation)
 
+    def _pause_for_no_ship(self) -> NavigationState:
+        self._repeat_last_emitted.clear()
+        self._announced_navigation_states.clear()
+        MinimapVisibilityTracker.reset_pending(self.minimap.gate.visibility)
+        self.hp_warning.reset()
+        self.rations_warning.reset()
+        return self.minimap.gate.navigation.no_ship()
+
     def _repeat_active_alerts(
         self,
         events: list[NotificationEvent],
@@ -229,7 +237,10 @@ class AlphaMonitoringLoop:
         observed_monotonic: float,
     ) -> None:
         active = {
-            EventType.ARRIVED: (state is NavigationState.ARRIVED, Severity.INFO),
+            EventType.ARRIVED: (
+                state in (NavigationState.ARRIVED, NavigationState.DEPARTED),
+                Severity.INFO,
+            ),
             EventType.STUCK: (state is NavigationState.STUCK, Severity.WARNING),
             EventType.SHIP_HP_LOW: (self.hp_warning.alerted, Severity.CRITICAL),
             EventType.RATIONS_LOW: (self.rations_warning.alerted, Severity.WARNING),
@@ -284,6 +295,11 @@ class AlphaMonitoringLoop:
             state = self._suspend_navigation()
             return MonitoringResult(sample.sequence, tuple(events), state)
 
+        if sample.resource_bars_visible is False:
+            self.calibration.reset_pending()
+            state = self._pause_for_no_ship()
+            return MonitoringResult(sample.sequence, (), state)
+
         calibration_input_ok = sample.calibration_ok and sample.minimap_roi is not None
         if not calibration_input_ok:
             calibration_event = self.calibration.update(False)
@@ -324,11 +340,11 @@ class AlphaMonitoringLoop:
             )
             events.append(NotificationEvent(decision.event, severity))
         if (
-            decision.navigation_state is NavigationState.ARRIVED
-            and NavigationState.ARRIVED not in self._announced_navigation_states
+            decision.navigation_state in (NavigationState.ARRIVED, NavigationState.DEPARTED)
+            and NavigationState.DEPARTED not in self._announced_navigation_states
         ):
             events.append(NotificationEvent(EventType.ARRIVED, Severity.INFO))
-            self._announced_navigation_states.add(NavigationState.ARRIVED)
+            self._announced_navigation_states.add(NavigationState.DEPARTED)
         elif (
             decision.navigation_state is NavigationState.STUCK
             and NavigationState.STUCK not in self._announced_navigation_states

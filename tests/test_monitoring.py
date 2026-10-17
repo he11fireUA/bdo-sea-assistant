@@ -10,7 +10,7 @@ from bdo_assistant.motion import MotionClass
 from bdo_assistant.navigation_observability import MinimapNavigationMonitor
 from bdo_assistant.navigation_state import NavigationObservation, NavigationState, NavigationStateMachine
 from bdo_assistant.notifications import EventType
-from bdo_assistant.resource_bars import ThresholdWarningTracker
+from bdo_assistant.resource_bars import ResourceReading, ThresholdWarningTracker
 from bdo_assistant.runtime import CalibratedFrameSampleBuilder
 
 
@@ -76,7 +76,7 @@ def test_simple_navigation_uses_first_valid_wgc_sample_before_capture_health_con
     )
 
     assert pending.navigation_state is NavigationState.UNKNOWN
-    assert arrived.navigation_state is NavigationState.ARRIVED
+    assert arrived.navigation_state is NavigationState.DEPARTED
 
 
 def test_repeat_arrival_alert_repeats_only_after_configured_interval() -> None:
@@ -371,7 +371,8 @@ def test_absent_ship_hud_suppresses_low_resource_alerts_with_visible_minimap() -
         for sequence in range(4, 8)
     ]
 
-    assert all(result.minimap_visible is True for result in results)
+    assert all(result.minimap_visible is None for result in results)
+    assert all(result.navigation_state is NavigationState.NO_SHIP for result in results)
     assert all(
         event.event_type not in (EventType.SHIP_HP_LOW, EventType.RATIONS_LOW)
         for result in results
@@ -388,6 +389,89 @@ def test_absent_ship_hud_suppresses_low_resource_alerts_with_visible_minimap() -
         EventType.SHIP_HP_LOW,
         EventType.RATIONS_LOW,
     ]
+
+
+def test_sample_builder_skips_minimap_analysis_without_both_ship_bars_and_resumes_immediately(monkeypatch) -> None:
+    layout = {
+        "schema_version": 1,
+        "regions": {
+            "minimap": {"normalized": {"x": 0.0, "y": 0.0, "width": 0.5, "height": 0.5}},
+            "ship_hp_bar": {"normalized": {"x": 0.0, "y": 0.6, "width": 0.4, "height": 0.1}},
+            "ship_rations_bar": {"normalized": {"x": 0.0, "y": 0.8, "width": 0.4, "height": 0.1}},
+        },
+    }
+    visible = {"value": False}
+
+    def reading(_frame, _track, _kind):
+        return ResourceReading(visible["value"], 75.0 if visible["value"] else None, 1.0)
+
+    monkeypatch.setattr("bdo_assistant.runtime.measure_resource_bar", reading)
+
+    class Analyzer:
+        def __init__(self) -> None:
+            self.calls = 0
+            self.resets = 0
+
+        def __call__(self, _sequence, _roi):
+            self.calls += 1
+            return NavigationObservation(MotionClass.MOVING, False, True)
+
+        def reset(self) -> None:
+            self.resets += 1
+
+    analyzer = Analyzer()
+    builder = CalibratedFrameSampleBuilder(layout, analyzer)
+    frame = np.zeros((100, 100, 3), dtype=np.uint8)
+
+    no_ship = builder.build(1, frame)
+    visible["value"] = True
+    reboarded = builder.build(2, frame)
+
+    assert no_ship.resource_bars_visible is False
+    assert no_ship.navigation_observation is None
+    assert analyzer.calls == 1
+    assert analyzer.resets == 1
+    assert reboarded.resource_bars_visible is True
+    assert reboarded.navigation_observation == NavigationObservation(MotionClass.MOVING, False, True)
+
+
+def test_no_ship_pauses_all_alerts_and_reboarding_resumes_minimap_processing() -> None:
+    minimap = cv2.imread(str(FIXTURES / "minimap_port.png"))
+    loop = _simple_loop()
+    moving = NavigationObservation(MotionClass.MOVING, False, True)
+
+    no_ship = loop.process(
+        MonitoringSample(1, True, True, minimap, moving, 0, 0, False, received_monotonic=1.0)
+    )
+    reboarded = loop.process(
+        MonitoringSample(2, True, True, minimap, moving, 80, 20, True, received_monotonic=2.0)
+    )
+
+    assert no_ship.navigation_state is NavigationState.NO_SHIP
+    assert no_ship.events == ()
+    assert reboarded.navigation_state is NavigationState.MOVING
+
+
+def test_explicit_no_ship_precedes_invalid_calibration_and_minimap_processing() -> None:
+    loop = _simple_loop()
+
+    result = loop.process(
+        MonitoringSample(
+            1,
+            True,
+            False,
+            minimap_roi=None,
+            navigation_observation=None,
+            hp_percent=0,
+            rations_percent=0,
+            resource_bars_visible=False,
+            received_monotonic=1.0,
+        )
+    )
+
+    assert result.navigation_state is NavigationState.NO_SHIP
+    assert result.events == ()
+    assert result.diagnostics == ()
 
 
 def test_absent_ship_hud_rearms_prior_resource_alerts_after_reboarding() -> None:

@@ -10,9 +10,11 @@ from .motion import MotionClass
 
 class NavigationState(str, Enum):
     UNKNOWN = "unknown"
+    NO_SHIP = "no_ship"
     MOVING = "moving"
     STATIONARY_CANDIDATE = "stationary_candidate"
     ARRIVED = "arrived"
+    DEPARTED = "departed"
     STUCK = "stuck"
     RECOVERING = "recovering"
 
@@ -153,48 +155,20 @@ class NavigationStateMachine:
         self._recent_near_monotonic = None
 
     def _simple_update(self, observation: NavigationObservation, now: float | None) -> NavigationState:
-        """Debounce movement independently; require route geometry for terminal states."""
-        if observation.route_complete is False and observation.endpoint_ahead is True:
-            self._route_seen_ahead = True
-            self._recent_near_monotonic = None
-        elif (
-            observation.motion is MotionClass.MOVING
-            and observation.route_complete is True
-            and observation.endpoint_ahead is False
-            and self._route_seen_ahead
-            and self._state is NavigationState.MOVING
-            and now is not None
-        ):
-            self._recent_near_monotonic = now
-        if observation.motion is MotionClass.MOVING:
-            # Texture displacement is sufficient to report progress.  Geometry can
-            # be ambiguous for an otherwise valid player route and must not hide it
-            # before a state has been established.  A terminal latch still needs
-            # route evidence before it may be replaced by MOVING.
-            target = (
-                NavigationState.MOVING
-                if (
-                    self._state in (NavigationState.UNKNOWN, NavigationState.MOVING)
-                    or (observation.route_complete is False and observation.endpoint_ahead is True)
-                )
-                else None
-            )
-        else:
-            target = {
-                (MotionClass.STATIONARY, True, False): NavigationState.ARRIVED,
-                (MotionClass.STATIONARY, False, True): NavigationState.STUCK,
-            }.get((observation.motion, observation.route_complete, observation.endpoint_ahead))
-            if target is None and observation.motion is MotionClass.STATIONARY:
-                recent_near = self._recent_near_monotonic
-                if (
-                    recent_near is not None
-                    and now is not None
-                    and now - recent_near <= self._confirmation_seconds + 3.0
-                ):
-                    target = NavigationState.ARRIVED
-                elif self._state is NavigationState.MOVING:
-                    target = NavigationState.UNKNOWN
+        """Apply the direct 3D-map truth table with five-second stationary terminals."""
+        route_present = observation.route_complete is False and observation.endpoint_ahead is True
+        route_absent = observation.route_complete is True and observation.endpoint_ahead is False
+        if observation.motion is MotionClass.MOVING and route_present:
+            self._state = NavigationState.MOVING
+            self._reset_simple_pending()
+            return self._state
+
+        target = {
+            (MotionClass.STATIONARY, True): NavigationState.STUCK,
+            (MotionClass.STATIONARY, False): NavigationState.DEPARTED,
+        }.get((observation.motion, route_present if route_present or route_absent else None))
         if target is None or now is None:
+            self._state = NavigationState.UNKNOWN
             self._reset_simple_pending()
             return self._state
         if target is self._state:
@@ -203,10 +177,13 @@ class NavigationStateMachine:
         if target is not self._pending_state:
             self._pending_state = target
             self._pending_since = now
+            self._state = NavigationState.UNKNOWN
             return self._state
         if now - self._pending_since >= self._confirmation_seconds:
             self._state = target
             self._reset_simple_pending()
+        else:
+            self._state = NavigationState.UNKNOWN
         return self._state
 
     @staticmethod
@@ -250,6 +227,12 @@ class NavigationStateMachine:
             self._state = NavigationState.STUCK
         elif self._state not in (NavigationState.ARRIVED, NavigationState.STUCK):
             self._state = NavigationState.UNKNOWN
+        return self._state
+
+    def no_ship(self) -> NavigationState:
+        """Pause navigation and discard all evidence until the paired ship HUD returns."""
+        self.suspend()
+        self._state = NavigationState.NO_SHIP
         return self._state
 
     def update(

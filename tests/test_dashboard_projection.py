@@ -82,8 +82,8 @@ def test_visible_minimap_with_absent_ship_hud_projects_resource_absence() -> Non
     status = RuntimeStatus(
         running=True,
         sequence=12,
-        navigation_state=NavigationState.MOVING,
-        result=MonitoringResult(12, (), NavigationState.MOVING, minimap_visible=True),
+        navigation_state=NavigationState.NO_SHIP,
+        result=MonitoringResult(12, (), NavigationState.NO_SHIP, minimap_visible=True),
         sample=sample,
     )
 
@@ -91,5 +91,19 @@ def test_visible_minimap_with_absent_ship_hud_projects_resource_absence() -> Non
 
     assert snapshot.minimap == "visible"
     assert snapshot.resources == "absent"
+    assert snapshot.navigation == "no_ship"
     assert snapshot.hp_percent is None
     assert snapshot.rations_percent is None
+
+
+def test_departed_state_projects_new_3d_detector_status() -> None:
+    status = RuntimeStatus(
+        running=True,
+        sequence=13,
+        navigation_state=NavigationState.DEPARTED,
+        result=MonitoringResult(13, (), NavigationState.DEPARTED, minimap_visible=True),
+    )
+
+    snapshot = project_runtime_status(status)
+
+    assert snapshot.navigation == "departed"

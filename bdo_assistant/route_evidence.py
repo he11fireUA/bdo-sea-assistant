@@ -14,6 +14,12 @@ class RouteGeometryClass(str, Enum):
     AMBIGUOUS = "ambiguous"
 
 
+class RoutePresence(str, Enum):
+    PRESENT = "present"
+    ABSENT = "absent"
+    UNKNOWN = "unknown"
+
+
 def _positive_seconds(value: object, name: str) -> float | None:
     if value is None:
         return None
@@ -199,3 +205,63 @@ def assess_target_marker_geometry(minimap_bgr: np.ndarray) -> RouteGeometryClass
         if min(distances) <= min(height, width) * 0.18
         else RouteGeometryClass.AHEAD
     )
+
+
+def assess_route_presence(minimap_bgr: np.ndarray) -> RoutePresence:
+    """Classify conservative evidence for the blue-violet 3D auto-route."""
+    if not isinstance(minimap_bgr, np.ndarray) or minimap_bgr.ndim != 3 or minimap_bgr.shape[2] != 3:
+        raise ValueError("minimap_bgr must be a BGR color image")
+    if minimap_bgr.size == 0 or minimap_bgr.dtype != np.uint8:
+        raise ValueError("minimap_bgr must be a non-empty uint8 image")
+
+    height, width = minimap_bgr.shape[:2]
+    hsv = cv2.cvtColor(minimap_bgr, cv2.COLOR_BGR2HSV)
+    hue, saturation, value = cv2.split(hsv)
+    route_mask = (
+        (hue >= 110)
+        & (hue <= 145)
+        & (saturation >= 25)
+        & (value >= 35)
+    ).astype(np.uint8)
+    route_mask = cv2.morphologyEx(
+        route_mask,
+        cv2.MORPH_CLOSE,
+        np.ones((3, 3), dtype=np.uint8),
+    )
+    if not np.any(route_mask):
+        return RoutePresence.ABSENT
+
+    _, labels, stats, _ = cv2.connectedComponentsWithStats(route_mask, 8)
+    center_x = width / 2.0
+    center_y = height / 2.0
+    center_radius = max(6.0, min(height, width) * 0.06)
+    ambiguity_radius = max(center_radius, min(height, width) * 0.09)
+    required_extent = min(height, width) * 0.23
+    max_area = height * width * 0.02
+
+    ambiguous_near_center = False
+    for label, (_, _, component_width, component_height, area) in enumerate(stats[1:], 1):
+        if area < 8 or component_width <= 0 or component_height <= 0:
+            continue
+        ys, xs = np.nonzero(labels == label)
+        if not xs.size:
+            continue
+        distances = np.hypot(xs - center_x, ys - center_y)
+        if float(distances.min()) <= ambiguity_radius:
+            ambiguous_near_center = True
+        if area > max_area:
+            continue
+        fill_ratio = area / (component_width * component_height)
+        points = np.column_stack((xs, ys)).astype(np.float32)
+        covariance = np.cov(points, rowvar=False)
+        eigenvalues = np.linalg.eigvalsh(covariance)
+        elongation = float(eigenvalues[-1] / max(eigenvalues[0], 1e-6))
+        if (
+            float(distances.min()) <= center_radius
+            and float(distances.max()) >= required_extent
+            and fill_ratio <= 0.35
+            and elongation >= 6.0
+        ):
+            return RoutePresence.PRESENT
+
+    return RoutePresence.UNKNOWN if ambiguous_near_center else RoutePresence.ABSENT

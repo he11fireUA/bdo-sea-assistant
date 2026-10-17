@@ -42,9 +42,11 @@ _ALLOWED_STATES = {
     "resources": {"unknown", "visible", "absent"},
     "navigation": {
         "unknown",
+        "no_ship",
         "moving",
         "stationary",
         "arrived",
+        "departed",
         "stuck",
         "recovering",
     },

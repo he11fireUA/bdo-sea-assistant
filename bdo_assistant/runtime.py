@@ -25,9 +25,10 @@ from .motion import (
 )
 from .navigation_state import NavigationObservation, NavigationState
 from .notifications import DeliveryResult, EventType, NotificationEvent, Severity
-from .route_evidence import RouteGeometryClass, assess_route_geometry, assess_target_marker_geometry
+from .route_evidence import RouteGeometryClass, RoutePresence, assess_route_geometry, assess_route_presence
 from .resource_bars import ResourceKind, measure_resource_bar
 from .shadow_pipeline import ShadowAccounting, ShadowMetrics, ShadowPipelineRunner, ShadowProcessor
+from .texture_motion import estimate_texture_motion
 from .ui_locator import Rect
 
 
@@ -274,9 +275,6 @@ class CalibratedFrameSampleBuilder:
             minimap.y : minimap.y + minimap.height,
             minimap.x : minimap.x + minimap.width,
         ].copy()
-        observation = self._navigation_analyzer(sequence, minimap_roi)
-        if type(observation) is not NavigationObservation:
-            raise ValueError("navigation analyzer must return NavigationObservation")
         hp_reading = measure_resource_bar(image, hp, ResourceKind.HP)
         rations_reading = measure_resource_bar(image, rations, ResourceKind.RATIONS)
         paired_candidates = (
@@ -295,7 +293,13 @@ class CalibratedFrameSampleBuilder:
         elif hp_reading.observable and rations_percent is None and rations_reading.candidate_percent is not None:
             rations_percent = rations_reading.candidate_percent
         both_visible = hp_percent is not None and rations_percent is not None
-        both_absent = not hp_reading.observable and not rations_reading.observable
+        observation = None
+        if both_visible:
+            observation = self._navigation_analyzer(sequence, minimap_roi)
+            if type(observation) is not NavigationObservation:
+                raise ValueError("navigation analyzer must return NavigationObservation")
+        else:
+            self.reset()
         return MonitoringSample(
             sequence=sequence,
             capture_ok=True,
@@ -304,7 +308,7 @@ class CalibratedFrameSampleBuilder:
             navigation_observation=observation,
             hp_percent=hp_percent,
             rations_percent=rations_percent,
-            resource_bars_visible=True if both_visible else False if both_absent else None,
+            resource_bars_visible=both_visible,
         )
 
     def reset(self) -> None:
@@ -314,12 +318,21 @@ class CalibratedFrameSampleBuilder:
 
 
 class SimpleNavigationAnalyzer:
-    """Classify each crop pair from direct texture displacement and route extent."""
+    """Detect 3D-map translation magnitude and the presence of the auto-route."""
 
-    def __init__(self, *, moving_pixels: float = 0.15) -> None:
-        if isinstance(moving_pixels, bool) or not isinstance(moving_pixels, Real) or not isfinite(float(moving_pixels)) or moving_pixels < 0:
-            raise ValueError("moving_pixels must be a finite non-negative number")
-        self._moving_pixels = float(moving_pixels)
+    def __init__(
+        self,
+        *,
+        minimum_displacement: float = 0.04,
+    ) -> None:
+        if (
+            isinstance(minimum_displacement, bool)
+            or not isinstance(minimum_displacement, Real)
+            or not isfinite(float(minimum_displacement))
+            or minimum_displacement < 0
+        ):
+            raise ValueError("minimum_displacement must be a finite non-negative number")
+        self._minimum_displacement = float(minimum_displacement)
         self._previous: np.ndarray | None = None
         self._last_sequence: int | None = None
 
@@ -330,21 +343,21 @@ class SimpleNavigationAnalyzer:
         discontinuity = self._last_sequence is not None and sequence != self._last_sequence + 1
         if discontinuity or (self._previous is not None and self._previous.shape != image.shape):
             self.reset()
-        target_geometry = assess_target_marker_geometry(image)
-        geometry = target_geometry if target_geometry is not None else assess_route_geometry(image)
         route = {
-            RouteGeometryClass.AHEAD: (False, True),
-            RouteGeometryClass.NEAR: (True, False),
-        }.get(geometry, (None, None))
+            RoutePresence.PRESENT: (False, True),
+            RoutePresence.ABSENT: (True, False),
+            RoutePresence.UNKNOWN: (None, None),
+        }[assess_route_presence(image)]
         motion = MotionClass.UNKNOWN
         if self._previous is not None:
-            changed = np.any(self._previous != image, axis=2)
-            changed_fraction = float(np.count_nonzero(changed)) / changed.size
-            motion = (
-                MotionClass.MOVING
-                if changed_fraction > self._moving_pixels
-                else MotionClass.STATIONARY
-            )
+            evidence = estimate_texture_motion(self._previous, image)
+            if evidence.valid:
+                displacement = float(np.hypot(evidence.dx, evidence.dy))
+                motion = (
+                    MotionClass.MOVING
+                    if displacement >= self._minimum_displacement
+                    else MotionClass.STATIONARY
+                )
         self._previous = image.copy()
         self._last_sequence = sequence
         return NavigationObservation(motion, *route)

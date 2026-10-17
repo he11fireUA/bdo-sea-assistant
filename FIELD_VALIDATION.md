@@ -1,6 +1,8 @@
 # Field validation backlog
 
-This document collects questions and fixtures that cannot be resolved honestly from the current offline dataset. None of these block location-agnostic detector, state-machine, or notification-core development.
+This document collects questions and fixtures that cannot be resolved honestly from the distributed offline dataset. None of these block location-agnostic detector, state-machine, or notification-core development.
+
+Three operator-labeled local sessions covering movement, arrival, and grounding informed the current 3D detector work. They are not published as automated replay fixtures, so they do not establish reproducible field-validation coverage for this repository.
 
 ## Fixtures needed in a future BDO session
 
@@ -18,14 +20,14 @@ This is needed to tune `content_valid` separately from capture and calibration h
 
 Offline implementation status (2026-08-02):
 
-- the calibrated 2D anchor is detected on the real `minimap_port.png` crop;
+- the saved minimap anchor remains a visibility diagnostic while navigation uses the calibrated 3D minimap ROI;
 - detector configuration and evidence are fail-closed for malformed/non-finite inputs;
 - startup remains `UNKNOWN` until persistent visible evidence;
 - every non-visible or incomplete-evidence frame suspends navigation immediately, including the loss-debounce interval;
 - confirmed `ARRIVED`/`STUCK` latches survive sensor suspension, while unconfirmed and recovery/departure counters reset;
 - an end-to-end synthetic occlusion replay verifies one LOST/RESTORED event and fresh navigation persistence after restore.
 
-The synthetic occluder proves orchestration semantics only. It does **not** prove that the production threshold recognizes the real BDO world map, menus, or hidden HUD; the field sequence above remains required. The product supports only the 2D minimap; 3D minimap support is permanently out of scope.
+The synthetic occluder proves orchestration semantics only. It does **not** prove that the production threshold recognizes every real BDO world map, menu, or hidden-HUD variant; the field sequence above remains required. Version 0.2.0 switches production navigation to the fixed-orientation 3D minimap and gates all minimap analysis on the paired ship HP and rations HUD.
 
 ### Alpha runtime threat boundary
 
@@ -69,7 +71,7 @@ Capture calibration samples for configurations actually used or planned:
 
 ## Operator decisions
 
-1. Resolved: every release supports only the 2D minimap; 3D minimap is out of scope.
+1. Resolved: version 0.2.0 targets the fixed-orientation 3D minimap; the former 2D-only decision is obsolete.
 2. Should `MINIMAP_VISIBILITY_RESTORED` be sent through every enabled channel, or only popup/log to avoid unnecessary voice and Telegram noise?
 3. Should UI language and notification-channel language be one global setting, or may Telegram, voice, and popup each use a different locale?
 4. For offline voice, should destination names be spoken when known, or should the first voice pack use generic phrases such as “Прибули” to avoid pronunciation and localization errors?

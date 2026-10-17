@@ -24,8 +24,8 @@ run_modern_app.py
 
 - Black Desert window discovery and Windows Graphics Capture integration;
 - saved UI calibration with preview, confirmation, retry, and manual correction;
-- 2D minimap visibility and physical texture-motion analysis;
-- conservative movement, arrival, stuck, and recovery state handling;
+- 3D minimap route-line detection and direction-independent texture translation analysis;
+- direct `NO_SHIP`, `MOVING`, `DEPARTED`, and `STUCK` state handling with five-second stationary confirmation;
 - ship durability and rations measurement with configurable warning zones;
 - bundled offline Ukrainian and English voice alerts;
 - non-focus desktop popup alerts;
@@ -43,7 +43,7 @@ run_modern_app.py
 - the update button checks for a newer release and opens its page, but does not yet download or install it automatically;
 - release manifests and installers are not yet cryptographically signed;
 - Telegram notifications are deferred until after the public alpha distribution path is stable;
-- navigation classification remains alpha behavior and continues to require real-route validation across additional destinations and obstruction scenarios;
+- three operator-labeled local movement, arrival, and grounding sessions informed the current 3D detector checks, but those recordings are not distributed automated fixtures; held-out routes and additional destinations are still required;
 - monitoring requires a visible, non-minimized BDO window.
 
 ## Development setup

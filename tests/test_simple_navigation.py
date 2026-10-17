@@ -5,139 +5,157 @@ import numpy as np
 
 from bdo_assistant.motion import MotionClass
 from bdo_assistant.navigation_state import NavigationObservation, NavigationState, NavigationStateMachine
-from bdo_assistant.route_evidence import RouteGeometryClass
+from bdo_assistant import route_evidence
 from bdo_assistant.runtime import SimpleNavigationAnalyzer
 
 
-def _moving_texture(offset: int, *, shape: tuple[int, int, int] = (80, 80, 3)) -> np.ndarray:
-    """A textured patch that moves within one LK tile but changes many pixels."""
-    image = np.zeros(shape, dtype=np.uint8)
-    patch = np.indices((20, 20)).sum(axis=0) % 2 * 255
-    image[3:23, 3 + offset:23 + offset] = patch[..., None]
+def _map_texture(*, dx: float = 0.0, dy: float = 0.0, route: bool = True, marker_angle: float = 0.0) -> np.ndarray:
+    rng = np.random.default_rng(42)
+    gray = rng.integers(35, 220, (260, 300), dtype=np.uint8)
+    gray = cv2.GaussianBlur(gray, (3, 3), 0)
+    image = cv2.cvtColor(gray, cv2.COLOR_GRAY2BGR)
+    transform = np.float32([[1, 0, dx], [0, 1, dy]])
+    image = cv2.warpAffine(image, transform, (300, 260), flags=cv2.INTER_LINEAR)
+    center = (150, 130)
+    if route:
+        cv2.line(image, center, (85, 250), (115, 65, 60), 2, cv2.LINE_AA)
+    marker = np.array([[150, 112], [141, 141], [150, 136], [159, 141]], dtype=np.float32)
+    rotation = cv2.getRotationMatrix2D(center, marker_angle, 1.0)
+    rotated = cv2.transform(marker[None, :, :], rotation)[0].astype(np.int32)
+    cv2.polylines(image, [rotated], True, (255, 255, 210), 3, cv2.LINE_AA)
     return image
 
 
-def _target_marker(*, center_x: int, center_y: int) -> np.ndarray:
-    minimap = np.zeros((260, 300, 3), dtype=np.uint8)
-    cv2.rectangle(minimap, (center_x - 5, center_y - 10), (center_x + 4, center_y + 9), (255, 255, 0), -1)
-    return minimap
+def test_route_presence_accepts_thin_purple_line_from_ship_center() -> None:
+    assert route_evidence.assess_route_presence(_map_texture(route=True)) is route_evidence.RoutePresence.PRESENT
 
 
-def test_simple_detector_prefers_a_far_cyan_target_marker_over_misleading_near_route(monkeypatch) -> None:
-    monkeypatch.setattr("bdo_assistant.runtime.assess_route_geometry", lambda roi: RouteGeometryClass.NEAR)
-    analyzer = SimpleNavigationAnalyzer()
-    far_target = _target_marker(center_x=210, center_y=65)
+def test_route_presence_rejects_missing_route_and_large_blue_terrain() -> None:
+    image = _map_texture(route=False)
+    cv2.rectangle(image, (158, 35), (250, 120), (180, 85, 55), -1)
 
-    observation = analyzer(0, far_target)
-
-    assert observation.route_complete is False
-    assert observation.endpoint_ahead is True
+    assert route_evidence.assess_route_presence(image) is route_evidence.RoutePresence.UNKNOWN
 
 
-def test_simple_detector_marks_a_near_cyan_target_marker_as_route_complete(monkeypatch) -> None:
-    monkeypatch.setattr("bdo_assistant.runtime.assess_route_geometry", lambda roi: RouteGeometryClass.AHEAD)
-    analyzer = SimpleNavigationAnalyzer()
-    near_target = _target_marker(center_x=130, center_y=106)
+def test_route_presence_marks_fragmented_or_occluded_route_unknown() -> None:
+    image = _map_texture(route=False)
+    cv2.line(image, (150, 130), (140, 148), (115, 65, 60), 2, cv2.LINE_AA)
+    cv2.line(image, (132, 164), (85, 250), (115, 65, 60), 2, cv2.LINE_AA)
 
-    observation = analyzer(0, near_target)
+    assert route_evidence.assess_route_presence(image) is route_evidence.RoutePresence.UNKNOWN
 
+
+def test_route_presence_rejects_offset_thin_blue_violet_terrain_component() -> None:
+    image = _map_texture(route=False)
+    contour = np.array([[166, 116], [178, 98], [195, 82], [220, 69], [247, 64]], dtype=np.int32)
+    cv2.polylines(image, [contour], False, (115, 65, 60), 2, cv2.LINE_AA)
+
+    assert route_evidence.assess_route_presence(image) is route_evidence.RoutePresence.UNKNOWN
+
+
+def test_route_presence_reports_clear_absence_only_without_route_like_pixels() -> None:
+    assert route_evidence.assess_route_presence(_map_texture(route=False)) is route_evidence.RoutePresence.ABSENT
+
+
+def test_route_presence_ignores_unrelated_route_colored_pixels_far_from_ship() -> None:
+    image = _map_texture(route=False)
+    cv2.line(image, (235, 28), (280, 62), (115, 65, 60), 2, cv2.LINE_AA)
+
+    assert route_evidence.assess_route_presence(image) is route_evidence.RoutePresence.ABSENT
+
+
+def test_detector_reports_motion_for_displacement_in_any_direction() -> None:
+    for dx, dy in ((1.0, 0.0), (-1.0, 0.0), (0.0, 1.0), (0.0, -1.0)):
+        analyzer = SimpleNavigationAnalyzer(minimum_displacement=0.04)
+        assert analyzer(0, _map_texture(route=True)).motion is MotionClass.UNKNOWN
+
+        observation = analyzer(1, _map_texture(dx=dx, dy=dy, route=True))
+
+        assert observation.motion is MotionClass.MOVING
+        assert observation.route_complete is False
+        assert observation.endpoint_ahead is True
+
+
+def test_detector_detects_slow_subpixel_motion_without_using_direction() -> None:
+    analyzer = SimpleNavigationAnalyzer(minimum_displacement=0.04)
+    analyzer(0, _map_texture(route=True))
+
+    observation = analyzer(1, _map_texture(dx=0.20, dy=-0.15, route=True))
+
+    assert observation.motion is MotionClass.MOVING
+
+
+def test_detector_ignores_rotation_inside_central_ship_marker_zone() -> None:
+    analyzer = SimpleNavigationAnalyzer(minimum_displacement=0.04)
+    analyzer(0, _map_texture(route=True, marker_angle=0))
+
+    observation = analyzer(1, _map_texture(route=True, marker_angle=90))
+
+    assert observation.motion is MotionClass.STATIONARY
+
+
+def test_detector_maps_missing_route_to_departed_evidence() -> None:
+    analyzer = SimpleNavigationAnalyzer(minimum_displacement=0.04)
+    roi = _map_texture(route=False)
+
+    assert analyzer(0, roi).motion is MotionClass.UNKNOWN
+    observation = analyzer(1, roi)
+
+    assert observation.motion is MotionClass.STATIONARY
     assert observation.route_complete is True
     assert observation.endpoint_ahead is False
 
 
-def test_simple_detector_confirms_moving_from_direct_texture_and_long_route(monkeypatch) -> None:
-    monkeypatch.setattr("bdo_assistant.runtime.assess_route_geometry", lambda roi: RouteGeometryClass.AHEAD)
-    analyzer = SimpleNavigationAnalyzer(moving_pixels=0.05)
+def test_detector_maps_fragmented_route_to_unknown_and_resets_departure_confirmation() -> None:
+    analyzer = SimpleNavigationAnalyzer(minimum_displacement=0.04)
     machine = NavigationStateMachine(simple=True, confirmation_seconds=5.0)
+    absent = _map_texture(route=False)
+    fragmented = absent.copy()
+    cv2.line(fragmented, (150, 130), (140, 148), (115, 65, 60), 2, cv2.LINE_AA)
+    cv2.line(fragmented, (132, 164), (85, 250), (115, 65, 60), 2, cv2.LINE_AA)
 
-    assert analyzer(0, _moving_texture(0)).motion is MotionClass.UNKNOWN
-    for timestamp in range(1, 6):
-        observation = analyzer(timestamp, _moving_texture(timestamp))
-        assert observation.motion is MotionClass.MOVING
-        assert machine.update(observation, observed_monotonic=float(timestamp)) is NavigationState.UNKNOWN
-    assert machine.update(analyzer(6, _moving_texture(6)), observed_monotonic=6.0) is NavigationState.MOVING
+    analyzer(0, absent)
+    assert machine.update(analyzer(1, absent), observed_monotonic=1.0) is NavigationState.UNKNOWN
+    unknown = analyzer(2, fragmented)
+    assert unknown.route_complete is None and unknown.endpoint_ahead is None
+    assert machine.update(unknown, observed_monotonic=5.0) is NavigationState.UNKNOWN
+    assert machine.update(analyzer(3, absent), observed_monotonic=6.0) is NavigationState.UNKNOWN
+    assert machine.update(analyzer(4, absent), observed_monotonic=11.0) is NavigationState.DEPARTED
 
 
-def test_simple_detector_confirms_arrived_from_static_texture_and_short_route(monkeypatch) -> None:
-    monkeypatch.setattr("bdo_assistant.runtime.assess_route_geometry", lambda roi: RouteGeometryClass.NEAR)
-    analyzer = SimpleNavigationAnalyzer()
+def test_simple_state_machine_reports_moving_immediately_only_with_route() -> None:
     machine = NavigationStateMachine(simple=True, confirmation_seconds=5.0)
-    roi = _moving_texture(0)
+    moving_with_route = NavigationObservation(MotionClass.MOVING, False, True)
+    moving_without_route = NavigationObservation(MotionClass.MOVING, True, False)
 
-    assert analyzer(0, roi).motion is MotionClass.UNKNOWN
-    assert machine.update(analyzer(1, roi), observed_monotonic=10.0) is NavigationState.UNKNOWN
-    assert machine.update(analyzer(2, roi), observed_monotonic=14.99) is NavigationState.UNKNOWN
-    assert machine.update(analyzer(3, roi), observed_monotonic=15.0) is NavigationState.ARRIVED
+    assert machine.update(moving_with_route, observed_monotonic=1.0) is NavigationState.MOVING
+    assert machine.update(moving_without_route, observed_monotonic=2.0) is NavigationState.UNKNOWN
 
 
-def test_simple_detector_confirms_stuck_from_static_texture_and_long_route(monkeypatch) -> None:
-    monkeypatch.setattr("bdo_assistant.runtime.assess_route_geometry", lambda roi: RouteGeometryClass.AHEAD)
-    analyzer = SimpleNavigationAnalyzer()
+def test_simple_state_machine_confirms_departed_after_five_static_seconds_without_route() -> None:
     machine = NavigationStateMachine(simple=True, confirmation_seconds=5.0)
-    roi = _moving_texture(0)
+    stationary_without_route = NavigationObservation(MotionClass.STATIONARY, True, False)
 
-    assert analyzer(0, roi).motion is MotionClass.UNKNOWN
-    assert machine.update(analyzer(1, roi), observed_monotonic=20.0) is NavigationState.UNKNOWN
-    assert machine.update(analyzer(2, roi), observed_monotonic=25.0) is NavigationState.STUCK
-
-
-def test_simple_detector_measures_texture_when_route_geometry_is_ambiguous(monkeypatch) -> None:
-    analyzer = SimpleNavigationAnalyzer(moving_pixels=0.05)
-    monkeypatch.setattr("bdo_assistant.runtime.assess_route_geometry", lambda roi: RouteGeometryClass.AMBIGUOUS)
-
-    assert analyzer(0, _moving_texture(0)).motion is MotionClass.UNKNOWN
-    ambiguous = analyzer(1, _moving_texture(1))
-    assert ambiguous.motion is MotionClass.MOVING
-    assert ambiguous.route_complete is ambiguous.endpoint_ahead is None
-
-    monkeypatch.setattr("bdo_assistant.runtime.assess_route_geometry", lambda roi: RouteGeometryClass.AHEAD)
-    mismatched = analyzer(2, _moving_texture(2, shape=(81, 80, 3)))
-    assert mismatched.motion is MotionClass.UNKNOWN
+    assert machine.update(stationary_without_route, observed_monotonic=10.0) is NavigationState.UNKNOWN
+    assert machine.update(stationary_without_route, observed_monotonic=14.99) is NavigationState.UNKNOWN
+    assert machine.update(stationary_without_route, observed_monotonic=15.0) is NavigationState.DEPARTED
 
 
-def test_simple_state_machine_surfaces_sustained_motion_with_ambiguous_route() -> None:
+def test_simple_state_machine_confirms_stuck_after_five_static_seconds_with_route() -> None:
     machine = NavigationStateMachine(simple=True, confirmation_seconds=5.0)
-    moving_unknown_route = NavigationObservation(MotionClass.MOVING, None, None)
+    stationary_with_route = NavigationObservation(MotionClass.STATIONARY, False, True)
 
-    assert machine.update(moving_unknown_route, observed_monotonic=1.0) is NavigationState.UNKNOWN
-    assert machine.update(moving_unknown_route, observed_monotonic=5.99) is NavigationState.UNKNOWN
-    assert machine.update(moving_unknown_route, observed_monotonic=6.0) is NavigationState.MOVING
+    assert machine.update(stationary_with_route, observed_monotonic=20.0) is NavigationState.UNKNOWN
+    assert machine.update(stationary_with_route, observed_monotonic=24.99) is NavigationState.UNKNOWN
+    assert machine.update(stationary_with_route, observed_monotonic=25.0) is NavigationState.STUCK
 
 
-def test_simple_state_machine_confirms_arrival_when_a_near_pulse_is_obscured_after_approach() -> None:
+def test_unknown_evidence_resets_terminal_confirmation_window() -> None:
     machine = NavigationStateMachine(simple=True, confirmation_seconds=5.0)
-    ahead_motion = NavigationObservation(MotionClass.MOVING, False, True)
-    near_motion = NavigationObservation(MotionClass.MOVING, True, False)
-    stationary_ambiguous = NavigationObservation(MotionClass.STATIONARY, None, None)
+    stationary_with_route = NavigationObservation(MotionClass.STATIONARY, False, True)
+    unknown = NavigationObservation(MotionClass.UNKNOWN, None, None)
 
-    assert machine.update(ahead_motion, observed_monotonic=1.0) is NavigationState.UNKNOWN
-    assert machine.update(ahead_motion, observed_monotonic=6.0) is NavigationState.MOVING
-    assert machine.update(near_motion, observed_monotonic=7.0) is NavigationState.MOVING
-    assert machine.update(stationary_ambiguous, observed_monotonic=8.0) is NavigationState.MOVING
-    assert machine.update(stationary_ambiguous, observed_monotonic=13.0) is NavigationState.ARRIVED
-
-
-def test_simple_state_machine_expires_moving_after_static_ambiguous_route_without_near() -> None:
-    machine = NavigationStateMachine(simple=True, confirmation_seconds=5.0)
-    ahead_motion = NavigationObservation(MotionClass.MOVING, False, True)
-    stationary_ambiguous = NavigationObservation(MotionClass.STATIONARY, None, None)
-
-    assert machine.update(ahead_motion, observed_monotonic=1.0) is NavigationState.UNKNOWN
-    assert machine.update(ahead_motion, observed_monotonic=6.0) is NavigationState.MOVING
-    assert machine.update(stationary_ambiguous, observed_monotonic=7.0) is NavigationState.MOVING
-    assert machine.update(stationary_ambiguous, observed_monotonic=12.0) is NavigationState.UNKNOWN
-
-
-def test_simple_state_machine_keeps_confirmed_state_during_pending_or_ambiguous_evidence() -> None:
-    machine = NavigationStateMachine(simple=True, confirmation_seconds=5.0)
-    arrived_evidence = NavigationObservation(MotionClass.STATIONARY, True, False)
-    moving_evidence = NavigationObservation(MotionClass.MOVING, False, True)
-
-    assert machine.update(arrived_evidence, observed_monotonic=1.0) is NavigationState.UNKNOWN
-    assert machine.update(arrived_evidence, observed_monotonic=6.0) is NavigationState.ARRIVED
-    assert machine.update(moving_evidence, observed_monotonic=7.0) is NavigationState.ARRIVED
-    assert machine.update(NavigationObservation(MotionClass.MOVING, None, None), observed_monotonic=8.0) is NavigationState.ARRIVED
-    assert machine.update(moving_evidence, observed_monotonic=12.0) is NavigationState.ARRIVED
-    assert machine.update(moving_evidence, observed_monotonic=17.0) is NavigationState.MOVING
-
-    assert machine.suspend() is NavigationState.UNKNOWN
+    assert machine.update(stationary_with_route, observed_monotonic=1.0) is NavigationState.UNKNOWN
+    assert machine.update(unknown, observed_monotonic=5.0) is NavigationState.UNKNOWN
+    assert machine.update(stationary_with_route, observed_monotonic=6.0) is NavigationState.UNKNOWN
+    assert machine.update(stationary_with_route, observed_monotonic=11.0) is NavigationState.STUCK
