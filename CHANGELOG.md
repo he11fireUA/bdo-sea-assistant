@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.2.2
+
+- Made trusted coherent minimap translation sufficient for `MOVING`, even when islands or terrain occlude the auto-route.
+- Deferred route classification until physical stationarity; route `PRESENT`, `ABSENT`, and `UNKNOWN` now decide only `STUCK`, `DEPARTED`, or continued uncertainty after the ship stops.
+- Verified the new truth table on a 60-second 277-frame field trace: all 270 trusted moving observations produced `MOVING`, with no route-dependent dropout; six physically stationary samples remained conservatively `UNKNOWN`.
+- Added the runtime version to the default application window title.
+- Updated Windows package metadata and artifact names to `0.2.2`.
+
 ## 0.2.1
 
 - Fixed sustained horizontal travel falling from `MOVING` to `UNKNOWN`: the motion estimator was already tracking all replayed frame pairs, while the horizontal blue-violet route was rejected because its axis-aligned strip filled its bounding box and began just outside the old ship-center radius.

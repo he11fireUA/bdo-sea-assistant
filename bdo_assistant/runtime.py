@@ -343,11 +343,6 @@ class SimpleNavigationAnalyzer:
         discontinuity = self._last_sequence is not None and sequence != self._last_sequence + 1
         if discontinuity or (self._previous is not None and self._previous.shape != image.shape):
             self.reset()
-        route = {
-            RoutePresence.PRESENT: (False, True),
-            RoutePresence.ABSENT: (True, False),
-            RoutePresence.UNKNOWN: (None, None),
-        }[assess_route_presence(image)]
         motion = MotionClass.UNKNOWN
         if self._previous is not None:
             evidence = estimate_texture_motion(self._previous, image)
@@ -358,6 +353,13 @@ class SimpleNavigationAnalyzer:
                     if displacement >= self._minimum_displacement
                     else MotionClass.STATIONARY
                 )
+        route = (None, None)
+        if motion is MotionClass.STATIONARY:
+            route = {
+                RoutePresence.PRESENT: (False, True),
+                RoutePresence.ABSENT: (True, False),
+                RoutePresence.UNKNOWN: (None, None),
+            }[assess_route_presence(image)]
         self._previous = image.copy()
         self._last_sequence = sequence
         return NavigationObservation(motion, *route)

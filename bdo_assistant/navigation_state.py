@@ -178,7 +178,7 @@ class NavigationStateMachine:
         """Apply the direct 3D-map truth table with five-second temporal bridges."""
         route_present = observation.route_complete is False and observation.endpoint_ahead is True
         route_absent = observation.route_complete is True and observation.endpoint_ahead is False
-        if observation.motion is MotionClass.MOVING and route_present:
+        if observation.motion is MotionClass.MOVING:
             self._state = NavigationState.MOVING
             self._departure_armed = True
             self._reset_simple_pending()
@@ -196,7 +196,11 @@ class NavigationStateMachine:
             return self._state
         if target is None or now is None:
             self._reset_simple_pending()
-            return self._bridge_simple_unknown(now)
+            if observation.motion is MotionClass.UNKNOWN:
+                return self._bridge_simple_unknown(now)
+            self._reset_moving_unknown_grace()
+            self._state = NavigationState.UNKNOWN
+            return self._state
         if target is self._state:
             self._reset_simple_pending()
             self._reset_moving_unknown_grace()
