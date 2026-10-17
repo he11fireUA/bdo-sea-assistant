@@ -1,5 +1,5 @@
 #define MyAppName "BDO Sea Assistant"
-#define MyAppVersion "0.1.0"
+#define MyAppVersion "0.2.0"
 #define MyAppPublisher ""
 #define MyAppExeName "BDOSeaAssistant.exe"
 #define MyAppId "{{A269FA14-CF0E-4C51-9A36-FB42E6C8FE66}"
@@ -13,7 +13,7 @@ DefaultDirName={localappdata}\Programs\BDOSeaAssistant
 DefaultGroupName={#MyAppName}
 DisableProgramGroupPage=yes
 OutputDir=..\release\installer
-OutputBaseFilename=BDOSeaAssistant-0.1.0-win-x64-Setup
+OutputBaseFilename=BDOSeaAssistant-0.2.0-win-x64-Setup
 Compression=lzma2
 SolidCompression=yes
 ArchitecturesAllowed=x64compatible

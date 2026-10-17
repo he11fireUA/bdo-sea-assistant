@@ -1724,9 +1724,11 @@ class ModernMainWindow(QMainWindow):
                 navigation_colors = {
                     "moving": "#4ee0a0",
                     "arrived": "#32c8df",
+                    "departed": "#32c8df",
                     "stuck": "#ff6b78",
                     "recovering": "#8aeaf7",
                     "unknown": "#ffc857",
+                    "no_ship": "#8da7bc",
                 }
                 label.setStyleSheet(
                     f"color: {navigation_colors.get(value.lower(), '#f3f8fb')};"

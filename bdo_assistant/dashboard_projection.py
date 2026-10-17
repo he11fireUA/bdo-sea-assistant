@@ -7,9 +7,11 @@ from .runtime import RuntimeStatus
 
 _NAVIGATION_VALUES = {
     NavigationState.UNKNOWN: "unknown",
+    NavigationState.NO_SHIP: "no_ship",
     NavigationState.MOVING: "moving",
     NavigationState.STATIONARY_CANDIDATE: "stationary",
     NavigationState.ARRIVED: "arrived",
+    NavigationState.DEPARTED: "departed",
     NavigationState.STUCK: "stuck",
     NavigationState.RECOVERING: "recovering",
 }

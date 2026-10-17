@@ -27,7 +27,7 @@ def test_release_version_matches_every_packaging_surface() -> None:
     root = Path(__file__).resolve().parents[1]
     version = project_version(root)
 
-    assert version == "0.1.0"
+    assert version == "0.2.0"
     assert version_mismatches(root, version) == []
 
 

@@ -91,12 +91,13 @@ def _validate_configuration(
 
 
 def _route_overlay_mask(image: np.ndarray) -> np.ndarray:
-    """Recognize only the high-saturation red/yellow route-overlay palette."""
+    """Recognize legacy red/yellow and fixed-3D blue-violet route palettes."""
     hsv = cv2.cvtColor(image, cv2.COLOR_BGR2HSV)
     hue, saturation, value = cv2.split(hsv)
     red = ((hue <= 10) | (hue >= 170)) & (saturation >= 110) & (value >= 110)
     yellow = (hue >= 15) & (hue <= 40) & (saturation >= 110) & (value >= 110)
-    return red | yellow
+    violet = (hue >= 105) & (hue <= 145) & (saturation >= 25) & (value >= 35)
+    return red | yellow | violet
 
 
 def _geometry_mask(shape: tuple[int, int], border_fraction: float, center_fraction: float) -> np.ndarray:
