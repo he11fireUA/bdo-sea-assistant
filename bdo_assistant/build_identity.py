@@ -2,6 +2,8 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
+from .version import __version__
+
 
 @dataclass(frozen=True)
 class BuildIdentity:
@@ -16,5 +18,5 @@ class BuildIdentity:
 DEFAULT_BUILD_IDENTITY = BuildIdentity(
     recipient="internal",
     build_id="bsa-alpha-generic",
-    window_title="BDO Sea Assistant — Alpha",
+    window_title=f"BDO Sea Assistant — Alpha {__version__}",
 )

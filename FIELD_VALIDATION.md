@@ -41,6 +41,8 @@ A local operator-labeled 60-second horizontal-motion session recorded 280 minima
 
 The same replay did **not** support discarding the upper 50% of the minimap. Feature counts by vertical quarter were `11219 / 20033 / 11549 / 3070` from top to bottom: the upper half supplied most available points, while the bottom quarter was sparsest. Full-ROI, lower-half, and lower-two-thirds motion estimates all remained valid, so production retains the full masked ROI rather than hard-cropping useful geometry.
 
+A later 60-second trace recorded 277 frames around islands where terrain repeatedly occluded and fragmented the auto-route. Texture motion remained trusted on 270 frames, but route evidence was `UNKNOWN` on 228 frames, causing a 26.7-second visible `UNKNOWN` interval even though the ship kept moving. Version 0.2.2 therefore treats trusted coherent texture translation as sufficient for `MOVING` and evaluates route presence only after physical stationarity. Replay of that trace produced `MOVING` for all 270 trusted-moving observations with zero movement dropouts; the startup frame and six physically stationary samples remained conservatively `UNKNOWN`.
+
 The current Git fixtures are intentionally compact `110×100` JPEG crops. They are suitable for deterministic regression logic but can erase subpixel motion. A future recording should retain the full calibrated minimap ROI at approximately 1 Hz for selected short windows:
 
 - normal approach;

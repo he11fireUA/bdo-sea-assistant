@@ -25,6 +25,7 @@ run_modern_app.py
 - Black Desert window discovery and Windows Graphics Capture integration;
 - saved UI calibration with preview, confirmation, retry, and manual correction;
 - 3D minimap route-line detection and direction-independent texture translation analysis;
+- trusted texture translation reports `MOVING` independently of route visibility; route evidence is evaluated only after physical stationarity;
 - stable horizontal-route recognition even when the route is visually separated from the ship marker;
 - direct `NO_SHIP`, `MOVING`, `DEPARTED`, and `STUCK` state handling with five-second stationary confirmation;
 - a five-second `MOVING → UNKNOWN` display bridge for short ambiguous detector samples;

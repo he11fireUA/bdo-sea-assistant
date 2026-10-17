@@ -5,7 +5,7 @@ $ReleaseRoot = Join-Path $ProjectRoot 'release'
 $WorkPath = Join-Path $ReleaseRoot 'build'
 $DistPath = Join-Path $ReleaseRoot 'dist'
 $Bundle = Join-Path $DistPath 'BDOSeaAssistant'
-$ZipPath = Join-Path $ReleaseRoot 'BDOSeaAssistant-0.2.1-win-x64-portable.zip'
+$ZipPath = Join-Path $ReleaseRoot 'BDOSeaAssistant-0.2.2-win-x64-portable.zip'
 
 Set-Location $ProjectRoot
 $env:PYTHONDONTWRITEBYTECODE = '1'

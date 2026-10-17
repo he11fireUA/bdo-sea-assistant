@@ -3,6 +3,8 @@ from pathlib import Path
 
 import pytest
 
+from bdo_assistant.build_identity import DEFAULT_BUILD_IDENTITY
+from bdo_assistant.version import __version__
 from tools.release_metadata import (
     artifact_names,
     forbidden_release_entries,
@@ -27,8 +29,12 @@ def test_release_version_matches_every_packaging_surface() -> None:
     root = Path(__file__).resolve().parents[1]
     version = project_version(root)
 
-    assert version == "0.2.1"
+    assert version == "0.2.2"
     assert version_mismatches(root, version) == []
+
+
+def test_default_window_title_includes_the_runtime_version() -> None:
+    assert DEFAULT_BUILD_IDENTITY.window_title == f"BDO Sea Assistant — Alpha {__version__}"
 
 
 def test_release_artifact_names_are_derived_from_the_version() -> None:
