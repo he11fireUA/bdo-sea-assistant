@@ -240,7 +240,7 @@ def assess_route_presence(minimap_bgr: np.ndarray) -> RoutePresence:
     max_area = height * width * 0.02
     max_minor_width = min(height, width) * 0.04
 
-    ambiguous_near_center = False
+    components: list[tuple[int, np.ndarray, np.ndarray, bool]] = []
     for label, (_, _, component_width, component_height, area) in enumerate(stats[1:], 1):
         if area < 8 or component_width <= 0 or component_height <= 0:
             continue
@@ -248,9 +248,10 @@ def assess_route_presence(minimap_bgr: np.ndarray) -> RoutePresence:
         if not xs.size:
             continue
         distances = np.hypot(xs - center_x, ys - center_y)
-        if float(distances.min()) <= ambiguity_radius:
-            ambiguous_near_center = True
+        near_center = float(distances.min()) <= ambiguity_radius
         if area > max_area:
+            if near_center:
+                return RoutePresence.UNKNOWN
             continue
         points = np.column_stack((xs, ys)).astype(np.float32)
         covariance = np.cov(points, rowvar=False)
@@ -264,5 +265,22 @@ def assess_route_presence(minimap_bgr: np.ndarray) -> RoutePresence:
             and elongation >= 6.0
         ):
             return RoutePresence.PRESENT
+        if near_center and float(distances.max()) >= required_extent:
+            return RoutePresence.UNKNOWN
+        components.append((label, xs, ys, near_center))
 
-    return RoutePresence.UNKNOWN if ambiguous_near_center else RoutePresence.ABSENT
+    # A short route-colored mark below the ship can be a persistent player/node
+    # glyph.  It is ambiguous only when another component geometrically continues
+    # it across the center mask; an isolated mark is not route evidence.
+    eligible_labels = np.array([label for label, _, _, _ in components], dtype=labels.dtype)
+    eligible_mask = np.isin(labels, eligible_labels)
+    for label, near_xs, near_ys, is_near_center in components:
+        if not is_near_center:
+            continue
+        other_components = eligible_mask & (labels != label)
+        if not np.any(other_components):
+            continue
+        distance_to_other = cv2.distanceTransform((~other_components).astype(np.uint8), cv2.DIST_L2, 3)
+        if float(distance_to_other[near_ys, near_xs].min()) <= ambiguity_radius:
+            return RoutePresence.UNKNOWN
+    return RoutePresence.ABSENT

@@ -71,6 +71,14 @@ def test_route_presence_marks_fragmented_or_occluded_route_unknown() -> None:
     assert route_evidence.assess_route_presence(image) is route_evidence.RoutePresence.UNKNOWN
 
 
+def test_route_presence_marks_fragmented_route_unknown_when_outer_fragment_precedes_center_fragment() -> None:
+    image = _map_texture(route=False)
+    cv2.rectangle(image, (169, 113), (171, 117), (115, 65, 60), -1)
+    cv2.line(image, (150, 130), (163, 117), (115, 65, 60), 2, cv2.LINE_AA)
+
+    assert route_evidence.assess_route_presence(image) is route_evidence.RoutePresence.UNKNOWN
+
+
 def test_route_presence_rejects_offset_thin_blue_violet_terrain_component() -> None:
     image = _map_texture(route=False)
     contour = np.array([[166, 116], [178, 98], [195, 82], [220, 69], [247, 64]], dtype=np.int32)
@@ -81,6 +89,22 @@ def test_route_presence_rejects_offset_thin_blue_violet_terrain_component() -> N
 
 def test_route_presence_reports_clear_absence_only_without_route_like_pixels() -> None:
     assert route_evidence.assess_route_presence(_map_texture(route=False)) is route_evidence.RoutePresence.ABSENT
+
+
+@pytest.mark.parametrize(
+    ("top_left", "bottom_right"),
+    [
+        ((147, 143), (147, 154)),  # 1x12 building/node fragment from field session A.
+        ((158, 138), (160, 142)),  # 3x5 ship-marker fragment from field session B.
+    ],
+)
+def test_route_presence_ignores_tiny_isolated_near_center_marker_fragments(
+    top_left: tuple[int, int], bottom_right: tuple[int, int]
+) -> None:
+    image = _map_texture(route=False)
+    cv2.rectangle(image, top_left, bottom_right, (115, 65, 60), -1)
+
+    assert route_evidence.assess_route_presence(image) is route_evidence.RoutePresence.ABSENT
 
 
 def test_route_presence_ignores_unrelated_route_colored_pixels_far_from_ship() -> None:
