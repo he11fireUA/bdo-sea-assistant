@@ -109,16 +109,22 @@ def test_runtime_factory_builds_complete_bridge_without_starting_capture() -> No
     assert bridge._shadow is None
 
 
-def test_runtime_factory_uses_simple_detector_with_five_second_monotonic_confirmation() -> None:
+def test_runtime_factory_combines_four_second_motion_window_with_three_second_terminal_confirmation() -> None:
     bridge = build_runtime_bridge(_inputs(), source_factory=FakeSource)
 
-    assert type(bridge.builder._navigation_analyzer) is SimpleNavigationAnalyzer
+    analyzer = bridge.builder._navigation_analyzer
+    assert type(analyzer) is SimpleNavigationAnalyzer
+    assert analyzer._motion_window_frames == 20
+    assert analyzer._minimum_moving_fraction == 0.75
+    assert analyzer._minimum_sustained_moving_fraction == 0.50
+    assert analyzer._minimum_progress_ratio == 0.30
     assert bridge._analysis_cadence is not None
     assert bridge._analysis_cadence.interval_seconds == 0.2
     assert bridge._analysis_cadence.discontinuity_seconds == 2.0
     navigation = bridge.loop.minimap.gate.navigation
     assert navigation._simple is True
-    assert navigation._confirmation_seconds == 5.0
+    assert navigation._confirmation_seconds == 3.0
+    assert navigation._confirmation_observations == 21
 
 
 def test_runtime_factory_requires_valid_calibration() -> None:

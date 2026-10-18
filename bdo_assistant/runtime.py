@@ -318,12 +318,16 @@ class CalibratedFrameSampleBuilder:
 
 
 class SimpleNavigationAnalyzer:
-    """Detect 3D-map translation magnitude and the presence of the auto-route."""
+    """Detect sustained 3D-map progress and route presence after stationarity."""
 
     def __init__(
         self,
         *,
         minimum_displacement: float = 0.04,
+        motion_window_frames: int = 20,
+        minimum_moving_fraction: float = 0.75,
+        minimum_sustained_moving_fraction: float = 0.50,
+        minimum_progress_ratio: float = 0.30,
     ) -> None:
         if (
             isinstance(minimum_displacement, bool)
@@ -332,7 +336,31 @@ class SimpleNavigationAnalyzer:
             or minimum_displacement < 0
         ):
             raise ValueError("minimum_displacement must be a finite non-negative number")
+        if type(motion_window_frames) is not int or motion_window_frames < 2:
+            raise ValueError("motion_window_frames must be an integer of at least 2")
+        for value, name in (
+            (minimum_moving_fraction, "minimum_moving_fraction"),
+            (minimum_sustained_moving_fraction, "minimum_sustained_moving_fraction"),
+            (minimum_progress_ratio, "minimum_progress_ratio"),
+        ):
+            if (
+                isinstance(value, bool)
+                or not isinstance(value, Real)
+                or not isfinite(float(value))
+                or not 0 < float(value) <= 1
+            ):
+                raise ValueError(f"{name} must be a finite number from 0 exclusive to 1 inclusive")
+        if minimum_sustained_moving_fraction > minimum_moving_fraction:
+            raise ValueError(
+                "minimum_sustained_moving_fraction cannot exceed minimum_moving_fraction"
+            )
         self._minimum_displacement = float(minimum_displacement)
+        self._motion_window_frames = motion_window_frames
+        self._minimum_moving_fraction = float(minimum_moving_fraction)
+        self._minimum_sustained_moving_fraction = float(minimum_sustained_moving_fraction)
+        self._minimum_progress_ratio = float(minimum_progress_ratio)
+        self._motion_window: deque[tuple[float, float]] = deque(maxlen=motion_window_frames)
+        self._moving_latched = False
         self._previous: np.ndarray | None = None
         self._last_sequence: int | None = None
 
@@ -347,12 +375,29 @@ class SimpleNavigationAnalyzer:
         if self._previous is not None:
             evidence = estimate_texture_motion(self._previous, image)
             if evidence.valid:
-                displacement = float(np.hypot(evidence.dx, evidence.dy))
-                motion = (
-                    MotionClass.MOVING
-                    if displacement >= self._minimum_displacement
-                    else MotionClass.STATIONARY
-                )
+                self._motion_window.append((evidence.dx, evidence.dy))
+                if len(self._motion_window) == self._motion_window_frames:
+                    vectors = np.asarray(self._motion_window, dtype=np.float64)
+                    magnitudes = np.linalg.norm(vectors, axis=1)
+                    moving_fraction = float(
+                        np.count_nonzero(magnitudes >= self._minimum_displacement)
+                    ) / self._motion_window_frames
+                    path_length = float(magnitudes.sum())
+                    net_progress = float(np.linalg.norm(vectors.sum(axis=0)))
+                    progress_ratio = net_progress / path_length if path_length > 0 else 0.0
+                    required_fraction = (
+                        self._minimum_sustained_moving_fraction
+                        if self._moving_latched
+                        else self._minimum_moving_fraction
+                    )
+                    self._moving_latched = (
+                        moving_fraction >= required_fraction
+                        and progress_ratio >= self._minimum_progress_ratio
+                    )
+                    motion = MotionClass.MOVING if self._moving_latched else MotionClass.STATIONARY
+            else:
+                self._motion_window.clear()
+                self._moving_latched = False
         route = (None, None)
         if motion is MotionClass.STATIONARY:
             route = {
@@ -365,6 +410,8 @@ class SimpleNavigationAnalyzer:
         return NavigationObservation(motion, *route)
 
     def reset(self) -> None:
+        self._motion_window.clear()
+        self._moving_latched = False
         self._previous = None
         self._last_sequence = None
 

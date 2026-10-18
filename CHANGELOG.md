@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.2.4
+
+- Replaced pair-to-pair `MOVING` decisions with a rolling four-second progress window at the production 0.2-second analysis cadence.
+- Require sustained displacement in at least 75% of the window to enter `MOVING`, retain it down to 50%, and require at least 30% net progress relative to total point travel; this hysteresis rejects wave-driven back-and-forth rocking without flapping on isolated quiet pairs.
+- Combine the motion-window transition with at least three seconds and 21 accepted samples of terminal route confirmation, preventing a terminal verdict before the complete 20-pair movement-entry opportunity has elapsed even with tolerated quiet pairs or capture-cadence jitter; the earliest clean stop decision is approximately six seconds.
+- Replayed the 272-frame stationary wave session with zero false `MOVING`; the 280-frame horizontal session and 277-frame island-travel session remained continuously `MOVING` after the initial window warm-up. A moving-to-wave replay settled to `DEPARTED` after eight seconds without returning to `MOVING`.
+- Updated Windows package metadata and artifact names to `0.2.4`.
+
 ## 0.2.3
 
 - Fixed stationary completed routes remaining `UNKNOWN` when a tiny isolated blue-violet ship/node marker fragment touched the center ambiguity radius.

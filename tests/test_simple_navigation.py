@@ -42,14 +42,16 @@ def test_route_presence_accepts_horizontal_3d_route_occluded_by_ship_marker() ->
 
 @pytest.mark.parametrize("dx", [-2.0, 2.0])
 def test_horizontal_3d_route_reports_motion_in_both_directions(dx: float) -> None:
-    analyzer = SimpleNavigationAnalyzer(minimum_displacement=0.04)
+    analyzer = SimpleNavigationAnalyzer(minimum_displacement=0.04, motion_window_frames=2)
     previous = _map_texture(route=False)
+    midpoint = _map_texture(dx=dx / 2.0, route=False)
     current = _map_texture(dx=dx, route=False)
-    for image in (previous, current):
+    for image in (previous, midpoint, current):
         cv2.rectangle(image, (167, 135), (299, 141), (115, 65, 60), -1)
 
     assert analyzer(0, previous).motion is MotionClass.UNKNOWN
-    observation = analyzer(1, current)
+    assert analyzer(1, midpoint).motion is MotionClass.UNKNOWN
+    observation = analyzer(2, current)
 
     assert observation.motion is MotionClass.MOVING
     assert observation.route_complete is None
@@ -116,10 +118,11 @@ def test_route_presence_ignores_unrelated_route_colored_pixels_far_from_ship() -
 
 def test_detector_reports_motion_for_displacement_in_any_direction() -> None:
     for dx, dy in ((1.0, 0.0), (-1.0, 0.0), (0.0, 1.0), (0.0, -1.0)):
-        analyzer = SimpleNavigationAnalyzer(minimum_displacement=0.04)
+        analyzer = SimpleNavigationAnalyzer(minimum_displacement=0.04, motion_window_frames=2)
         assert analyzer(0, _map_texture(route=True)).motion is MotionClass.UNKNOWN
+        assert analyzer(1, _map_texture(dx=dx / 2.0, dy=dy / 2.0, route=True)).motion is MotionClass.UNKNOWN
 
-        observation = analyzer(1, _map_texture(dx=dx, dy=dy, route=True))
+        observation = analyzer(2, _map_texture(dx=dx, dy=dy, route=True))
 
         assert observation.motion is MotionClass.MOVING
         assert observation.route_complete is None
@@ -127,29 +130,217 @@ def test_detector_reports_motion_for_displacement_in_any_direction() -> None:
 
 
 def test_detector_detects_slow_subpixel_motion_without_using_direction() -> None:
-    analyzer = SimpleNavigationAnalyzer(minimum_displacement=0.04)
+    analyzer = SimpleNavigationAnalyzer(minimum_displacement=0.04, motion_window_frames=2)
     analyzer(0, _map_texture(route=True))
+    analyzer(1, _map_texture(dx=0.10, dy=-0.075, route=True))
 
-    observation = analyzer(1, _map_texture(dx=0.20, dy=-0.15, route=True))
+    observation = analyzer(2, _map_texture(dx=0.20, dy=-0.15, route=True))
 
     assert observation.motion is MotionClass.MOVING
 
 
-def test_detector_ignores_rotation_inside_central_ship_marker_zone() -> None:
-    analyzer = SimpleNavigationAnalyzer(minimum_displacement=0.04)
-    analyzer(0, _map_texture(route=True, marker_angle=0))
+def test_detector_requires_four_second_motion_history_before_trusting_movement() -> None:
+    analyzer = SimpleNavigationAnalyzer(
+        minimum_displacement=0.04,
+        motion_window_frames=20,
+    )
 
-    observation = analyzer(1, _map_texture(route=True, marker_angle=90))
+    for sequence in range(20):
+        observation = analyzer(sequence, _map_texture(dy=sequence * 0.20, route=False))
+        assert observation.motion is MotionClass.UNKNOWN
+
+    observation = analyzer(20, _map_texture(dy=4.0, route=False))
+
+    assert observation.motion is MotionClass.MOVING
+    assert observation.route_complete is None
+    assert observation.endpoint_ahead is None
+
+
+def test_detector_treats_four_seconds_of_wave_oscillation_as_stationary() -> None:
+    analyzer = SimpleNavigationAnalyzer(
+        minimum_displacement=0.04,
+        motion_window_frames=20,
+    )
+
+    positions = [0.0]
+    for index in range(20):
+        positions.append(0.80 if index % 2 == 0 else 0.0)
+    for sequence, dy in enumerate(positions[:-1]):
+        assert analyzer(sequence, _map_texture(dy=dy, route=False)).motion is MotionClass.UNKNOWN
+
+    observation = analyzer(20, _map_texture(dy=positions[-1], route=False))
+
+    assert observation.motion is MotionClass.STATIONARY
+    assert observation.route_complete is True
+    assert observation.endpoint_ahead is False
+
+
+def test_detector_keeps_coherent_progress_with_one_quiet_pair_moving() -> None:
+    analyzer = SimpleNavigationAnalyzer(
+        minimum_displacement=0.04,
+        motion_window_frames=20,
+    )
+    positions = [0.0]
+    for index in range(20):
+        step = 0.0 if index == 10 else 0.20
+        positions.append(positions[-1] + step)
+
+    for sequence, dy in enumerate(positions):
+        observation = analyzer(sequence, _map_texture(dy=dy, route=False))
+
+    assert observation.motion is MotionClass.MOVING
+    assert observation.route_complete is None
+    assert observation.endpoint_ahead is None
+
+
+def test_detector_requires_more_evidence_to_enter_moving_than_to_remain_moving() -> None:
+    analyzer = SimpleNavigationAnalyzer()
+    sequence = 0
+    position = 0.0
+
+    for _ in range(21):
+        observation = analyzer(sequence, _map_texture(dy=position, route=False))
+        sequence += 1
+    assert observation.motion is MotionClass.STATIONARY
+
+    for _ in range(12):
+        position += 0.20
+        observation = analyzer(sequence, _map_texture(dy=position, route=False))
+        sequence += 1
+    assert observation.motion is MotionClass.STATIONARY
+
+    for _ in range(3):
+        position += 0.20
+        observation = analyzer(sequence, _map_texture(dy=position, route=False))
+        sequence += 1
+    assert observation.motion is MotionClass.MOVING
+
+    for _ in range(5):
+        observation = analyzer(sequence, _map_texture(dy=position, route=False))
+        sequence += 1
+    assert observation.motion is MotionClass.MOVING
+
+
+def test_motion_window_and_terminal_confirmation_keep_a_six_second_stop_horizon() -> None:
+    analyzer = SimpleNavigationAnalyzer()
+    machine = NavigationStateMachine(
+        simple=True,
+        confirmation_seconds=3.0,
+        confirmation_observations=21,
+    )
+    position = 0.0
+    now = 0.0
+
+    for sequence in range(21):
+        position = sequence * 0.20
+        observation = analyzer(sequence, _map_texture(dy=position, route=False))
+        state = machine.update(observation, observed_monotonic=now)
+        now += 0.20
+    assert state is NavigationState.MOVING
+    stopped_at = now - 0.20
+
+    departed_at = None
+    for sequence in range(21, 55):
+        observation = analyzer(sequence, _map_texture(dy=position, route=False))
+        state = machine.update(observation, observed_monotonic=now)
+        if state is NavigationState.DEPARTED:
+            departed_at = now
+            break
+        now += 0.20
+
+    assert departed_at is not None
+    assert 6.0 <= departed_at - stopped_at <= 6.4
+
+
+def test_sustained_movement_preempts_terminal_confirmation_from_a_warm_stationary_window() -> None:
+    analyzer = SimpleNavigationAnalyzer()
+    machine = NavigationStateMachine(simple=True, confirmation_seconds=3.0)
+    now = 0.0
+
+    for sequence in range(21):
+        observation = analyzer(sequence, _map_texture(route=True))
+        now += 0.20
+    assert observation.motion is MotionClass.STATIONARY
+    assert machine.update(observation, observed_monotonic=now) is NavigationState.UNKNOWN
+
+    states = []
+    for offset in range(1, 17):
+        observation = analyzer(20 + offset, _map_texture(dy=offset * 0.20, route=True))
+        now += 0.20
+        states.append(machine.update(observation, observed_monotonic=now))
+
+    assert NavigationState.STUCK not in states
+    assert states[-1] is NavigationState.MOVING
+
+
+def test_sustained_movement_preempts_terminal_confirmation_with_slow_accepted_samples() -> None:
+    analyzer = SimpleNavigationAnalyzer()
+    machine = NavigationStateMachine(
+        simple=True,
+        confirmation_seconds=3.0,
+        confirmation_observations=16,
+    )
+
+    for sequence in range(21):
+        observation = analyzer(sequence, _map_texture(route=True))
+    now = 0.0
+    assert machine.update(observation, observed_monotonic=now) is NavigationState.UNKNOWN
+
+    states = []
+    interval = 13 / 60
+    for offset in range(1, 16):
+        observation = analyzer(20 + offset, _map_texture(dy=offset * 0.20, route=True))
+        now += interval
+        states.append(machine.update(observation, observed_monotonic=now))
+
+    assert NavigationState.STUCK not in states
+    assert states[-1] is NavigationState.MOVING
+
+
+def test_tolerated_quiet_onset_pairs_cannot_let_terminal_confirmation_beat_moving() -> None:
+    analyzer = SimpleNavigationAnalyzer()
+    machine = NavigationStateMachine(
+        simple=True,
+        confirmation_seconds=3.0,
+        confirmation_observations=21,
+    )
+
+    for sequence in range(21):
+        observation = analyzer(sequence, _map_texture(route=True))
+    now = 0.0
+    assert machine.update(observation, observed_monotonic=now) is NavigationState.UNKNOWN
+
+    states = []
+    position = 0.0
+    quiet_offsets = {4, 8, 12, 16, 20}
+    for offset in range(1, 21):
+        if offset not in quiet_offsets:
+            position += 0.20
+        observation = analyzer(20 + offset, _map_texture(dy=position, route=True))
+        now += 0.20
+        states.append(machine.update(observation, observed_monotonic=now))
+
+    assert NavigationState.STUCK not in states
+    assert states[-1] is NavigationState.MOVING
+
+
+def test_detector_ignores_rotation_inside_central_ship_marker_zone() -> None:
+    analyzer = SimpleNavigationAnalyzer(minimum_displacement=0.04, motion_window_frames=2)
+    analyzer(0, _map_texture(route=True, marker_angle=0))
+    analyzer(1, _map_texture(route=True, marker_angle=45))
+
+    observation = analyzer(2, _map_texture(route=True, marker_angle=90))
 
     assert observation.motion is MotionClass.STATIONARY
 
 
 def test_detector_maps_missing_route_to_departed_evidence() -> None:
-    analyzer = SimpleNavigationAnalyzer(minimum_displacement=0.04)
+    analyzer = SimpleNavigationAnalyzer(minimum_displacement=0.04, motion_window_frames=2)
     roi = _map_texture(route=False)
 
     assert analyzer(0, roi).motion is MotionClass.UNKNOWN
-    observation = analyzer(1, roi)
+    assert analyzer(1, roi).motion is MotionClass.UNKNOWN
+    observation = analyzer(2, roi)
 
     assert observation.motion is MotionClass.STATIONARY
     assert observation.route_complete is True
@@ -157,7 +348,7 @@ def test_detector_maps_missing_route_to_departed_evidence() -> None:
 
 
 def test_detector_maps_fragmented_route_to_unknown_and_resets_departure_confirmation() -> None:
-    analyzer = SimpleNavigationAnalyzer(minimum_displacement=0.04)
+    analyzer = SimpleNavigationAnalyzer(minimum_displacement=0.04, motion_window_frames=2)
     machine = NavigationStateMachine(simple=True, confirmation_seconds=5.0)
     absent = _map_texture(route=False)
     fragmented = absent.copy()
@@ -165,12 +356,13 @@ def test_detector_maps_fragmented_route_to_unknown_and_resets_departure_confirma
     cv2.line(fragmented, (132, 164), (85, 250), (115, 65, 60), 2, cv2.LINE_AA)
 
     analyzer(0, absent)
-    assert machine.update(analyzer(1, absent), observed_monotonic=1.0) is NavigationState.UNKNOWN
-    unknown = analyzer(2, fragmented)
+    analyzer(1, absent)
+    assert machine.update(analyzer(2, absent), observed_monotonic=1.0) is NavigationState.UNKNOWN
+    unknown = analyzer(3, fragmented)
     assert unknown.route_complete is None and unknown.endpoint_ahead is None
     assert machine.update(unknown, observed_monotonic=5.0) is NavigationState.UNKNOWN
-    assert machine.update(analyzer(3, absent), observed_monotonic=6.0) is NavigationState.UNKNOWN
-    assert machine.update(analyzer(4, absent), observed_monotonic=11.0) is NavigationState.DEPARTED
+    assert machine.update(analyzer(4, absent), observed_monotonic=6.0) is NavigationState.UNKNOWN
+    assert machine.update(analyzer(5, absent), observed_monotonic=11.0) is NavigationState.DEPARTED
 
 
 def test_simple_state_machine_reports_moving_with_or_without_route_context() -> None:
@@ -199,15 +391,22 @@ def test_simple_analyzer_reads_route_only_after_physical_stationarity(monkeypatc
         return route_evidence.RoutePresence.PRESENT
 
     monkeypatch.setattr("bdo_assistant.runtime.assess_route_presence", route_presence)
-    analyzer = SimpleNavigationAnalyzer(minimum_displacement=0.04)
+    analyzer = SimpleNavigationAnalyzer(
+        minimum_displacement=0.04,
+        motion_window_frames=2,
+        minimum_sustained_moving_fraction=0.75,
+    )
     previous = _map_texture(route=True)
+    midpoint = _map_texture(dx=1.0, route=True)
     moved = _map_texture(dx=2.0, route=True)
 
     baseline = analyzer(0, previous)
-    moving = analyzer(1, moved)
-    stationary = analyzer(2, moved)
+    warming = analyzer(1, midpoint)
+    moving = analyzer(2, moved)
+    stationary = analyzer(3, moved)
 
     assert baseline == NavigationObservation(MotionClass.UNKNOWN, None, None)
+    assert warming == NavigationObservation(MotionClass.UNKNOWN, None, None)
     assert moving == NavigationObservation(MotionClass.MOVING, None, None)
     assert stationary == NavigationObservation(MotionClass.STATIONARY, False, True)
     assert len(calls) == 1

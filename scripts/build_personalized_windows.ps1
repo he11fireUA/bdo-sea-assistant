@@ -9,9 +9,9 @@ param(
 $ErrorActionPreference = 'Stop'
 $ProjectRoot = Split-Path -Parent $PSScriptRoot
 $IdentityPath = Join-Path $ProjectRoot 'bdo_assistant\build_identity.py'
-$ReleaseZip = Join-Path $ProjectRoot 'release\BDOSeaAssistant-0.2.3-win-x64-portable.zip'
+$ReleaseZip = Join-Path $ProjectRoot 'release\BDOSeaAssistant-0.2.4-win-x64-portable.zip'
 if (-not $BuildId) { $BuildId = "bsa-alpha-$Recipient-$([guid]::NewGuid().ToString('N').Substring(0, 12))" }
-$Destination = Join-Path $env:USERPROFILE "Downloads\BDO-Sea-Assistant-0.2.3-alpha-$Recipient-$BuildId-portable.zip"
+$Destination = Join-Path $env:USERPROFILE "Downloads\BDO-Sea-Assistant-0.2.4-alpha-$Recipient-$BuildId-portable.zip"
 $OriginalBytes = [System.IO.File]::ReadAllBytes($IdentityPath)
 
 # This file is compiled into the PyInstaller bytecode, then the generic source
