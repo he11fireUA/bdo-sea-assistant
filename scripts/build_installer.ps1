@@ -13,7 +13,7 @@ if ($Candidates.Count -eq 0) {
 
 & $Candidates[0] (Join-Path $ProjectRoot 'packaging\installer.iss')
 if ($LASTEXITCODE -ne 0) { throw "Inno Setup failed with exit code $LASTEXITCODE." }
-$Installer = Join-Path $ProjectRoot 'release\installer\BDOSeaAssistant-0.2.3-win-x64-Setup.exe'
+$Installer = Join-Path $ProjectRoot 'release\installer\BDOSeaAssistant-0.2.4-win-x64-Setup.exe'
 if (-not (Test-Path $Installer)) { throw 'Inno Setup did not produce the installer.' }
 Get-FileHash -Algorithm SHA256 $Installer | Format-Table -AutoSize
 Write-Host "Installer: $Installer"

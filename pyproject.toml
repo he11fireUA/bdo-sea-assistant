@@ -1,6 +1,6 @@
 [project]
 name = "bdo-sea-assistant"
-version = "0.2.3"
+version = "0.2.4"
 description = "Read-only Windows sea assistant for Black Desert Online"
 license = "GPL-3.0-only"
 readme = "README.md"

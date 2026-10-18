@@ -95,7 +95,11 @@ def build_runtime_bridge(
         visibility=MinimapVisibilityTracker(
             lost_after_seconds=inputs.minimap_loss_delay_seconds,
         ),
-        navigation=NavigationStateMachine(simple=True, confirmation_seconds=5.0),
+        navigation=NavigationStateMachine(
+            simple=True,
+            confirmation_seconds=3.0,
+            confirmation_observations=21,
+        ),
     )
     loop = AlphaMonitoringLoop(
         minimap=minimap,

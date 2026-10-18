@@ -27,7 +27,7 @@ run_modern_app.py
 - 3D minimap route-line detection and direction-independent texture translation analysis;
 - trusted texture translation reports `MOVING` independently of route visibility; route evidence is evaluated only after physical stationarity;
 - stable horizontal-route recognition even when the route is visually separated from the ship marker;
-- direct `NO_SHIP`, `MOVING`, `DEPARTED`, and `STUCK` state handling with five-second stationary confirmation;
+- direct `NO_SHIP`, `MOVING`, `DEPARTED`, and `STUCK` state handling with a rolling four-second progress window, movement hysteresis, and terminal confirmation requiring both three seconds and 21 accepted samples;
 - a five-second `MOVING → UNKNOWN` display bridge for short ambiguous detector samples;
 - arrival re-arming after `NO_SHIP`, so returning to the helm cannot replay an old arrival before new movement;
 - ship durability and rations measurement with configurable warning zones;

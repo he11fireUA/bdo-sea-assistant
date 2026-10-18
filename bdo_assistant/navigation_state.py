@@ -56,8 +56,9 @@ class NavigationStateMachine:
         "_arrival_seconds", "_stuck_seconds", "_recovery_seconds", "_departure_seconds",
         "_state", "_arrival_count", "_stuck_count", "_recovery_count", "_departure_count",
         "_arrival_since", "_stuck_since", "_recovery_since", "_departure_since",
-        "_last_observed_monotonic", "_simple", "_confirmation_seconds", "_unknown_grace_seconds",
-        "_pending_state", "_pending_since", "_moving_unknown_since", "_departure_armed",
+        "_last_observed_monotonic", "_simple", "_confirmation_seconds", "_confirmation_observations",
+        "_unknown_grace_seconds", "_pending_state", "_pending_since", "_pending_count",
+        "_moving_unknown_since", "_departure_armed",
         "_route_seen_ahead", "_recent_near_monotonic",
     )
 
@@ -74,6 +75,7 @@ class NavigationStateMachine:
         departure_seconds: float | None = None,
         simple: bool = False,
         confirmation_seconds: float = 5.0,
+        confirmation_observations: int = 1,
         unknown_grace_seconds: float = 5.0,
     ) -> None:
         # Frame thresholds remain a compatibility mode; they are never seconds.
@@ -89,6 +91,9 @@ class NavigationStateMachine:
             raise ValueError("simple must be boolean")
         self._simple = simple
         self._confirmation_seconds = _seconds(confirmation_seconds, "confirmation_seconds")
+        if type(confirmation_observations) is not int or confirmation_observations < 1:
+            raise ValueError("confirmation_observations must be a positive integer")
+        self._confirmation_observations = confirmation_observations
         self._unknown_grace_seconds = _seconds(unknown_grace_seconds, "unknown_grace_seconds")
         if self._unknown_grace_seconds is None:
             raise ValueError("unknown_grace_seconds must be a finite positive number")
@@ -99,6 +104,7 @@ class NavigationStateMachine:
         self._last_observed_monotonic: float | None = None
         self._pending_state: NavigationState | None = None
         self._pending_since: float | None = None
+        self._pending_count = 0
         self._moving_unknown_since: float | None = None
         self._departure_armed = True
         self._route_seen_ahead = False
@@ -157,6 +163,7 @@ class NavigationStateMachine:
     def _reset_simple_pending(self) -> None:
         self._pending_state = None
         self._pending_since = None
+        self._pending_count = 0
 
     def _reset_moving_unknown_grace(self) -> None:
         self._moving_unknown_since = None
@@ -175,7 +182,7 @@ class NavigationStateMachine:
         self._recent_near_monotonic = None
 
     def _simple_update(self, observation: NavigationObservation, now: float | None) -> NavigationState:
-        """Apply the direct 3D-map truth table with five-second temporal bridges."""
+        """Apply the direct 3D-map truth table with bounded temporal confirmation."""
         route_present = observation.route_complete is False and observation.endpoint_ahead is True
         route_absent = observation.route_complete is True and observation.endpoint_ahead is False
         if observation.motion is MotionClass.MOVING:
@@ -208,8 +215,13 @@ class NavigationStateMachine:
         if target is not self._pending_state:
             self._pending_state = target
             self._pending_since = now
+            self._pending_count = 1
             return self._bridge_simple_unknown(now)
-        if now - self._pending_since >= self._confirmation_seconds:
+        self._pending_count += 1
+        if (
+            now - self._pending_since >= self._confirmation_seconds
+            and self._pending_count >= self._confirmation_observations
+        ):
             self._state = target
             self._reset_simple_pending()
             self._reset_moving_unknown_grace()
