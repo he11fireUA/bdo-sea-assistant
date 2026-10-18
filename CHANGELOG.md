@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.2.3
+
+- Fixed stationary completed routes remaining `UNKNOWN` when a tiny isolated blue-violet ship/node marker fragment touched the center ambiguity radius.
+- Preserve `UNKNOWN` for route-like continuations across the center mask, and `PRESENT` for a genuine route; isolated fragments now permit `ABSENT` route evidence.
+- Replayed two private operator-labeled post-arrival sessions mechanically through the production analyzer: every frame classified route `ABSENT`. The sessions begin after arrival and are not whole-route arrival validation.
+- Updated Windows package metadata and artifact names to `0.2.3`.
+
 ## 0.2.2
 
 - Made trusted coherent minimap translation sufficient for `MOVING`, even when islands or terrain occlude the auto-route.
